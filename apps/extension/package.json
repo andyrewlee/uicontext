@@ -10,6 +10,7 @@
     "package": "plasmo package"
   },
   "dependencies": {
+    "@clerk/chrome-extension": "^2.7.7",
     "plasmo": "0.90.5",
     "react": "18.2.0",
     "react-dom": "18.2.0",
@@ -26,8 +27,8 @@
     "typescript": "5.3.3"
   },
   "manifest": {
-    "host_permissions": [
-      "https://*/*"
-    ]
+    "key": "$CRX_PUBLIC_KEY",
+    "permissions": ["cookies", "storage"],
+    "host_permissions": ["http://localhost/*", "$CLERK_FRONTEND_API/*"]
   }
 }
