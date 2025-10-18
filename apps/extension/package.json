@@ -14,6 +14,7 @@
     "plasmo": "0.90.5",
     "react": "18.2.0",
     "react-dom": "18.2.0",
+    "react-router": "^7.9.4",
     "tailwindcss": "3.4.1"
   },
   "devDependencies": {
@@ -28,7 +29,13 @@
   },
   "manifest": {
     "key": "$CRX_PUBLIC_KEY",
-    "permissions": ["cookies", "storage"],
-    "host_permissions": ["http://localhost/*", "$CLERK_FRONTEND_API/*"]
+    "permissions": [
+      "cookies",
+      "storage"
+    ],
+    "host_permissions": [
+      "http://localhost/*",
+      "$CLERK_FRONTEND_API/*"
+    ]
   }
 }
