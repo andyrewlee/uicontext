@@ -33,9 +33,6 @@
       "cookies",
       "storage"
     ],
-    "host_permissions": [
-      "http://localhost/*",
-      "$CLERK_FRONTEND_API/*"
-    ]
+    "host_permissions": ["$PLASMO_PUBLIC_CLERK_SYNC_HOST/*", "$CLERK_FRONTEND_API/*"]
   }
 }

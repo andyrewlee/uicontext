@@ -4,7 +4,14 @@ export const SignInPage = () => {
   return (
     <>
       <p>Sign In</p>
-      <SignIn routing="virtual" />
+      <SignIn
+        appearance={{
+          elements: {
+            socialButtonsRoot: 'plasmo-hidden',
+            dividerRow: 'plasmo-hidden',
+          },
+        }}
+      />
     </>
   )
 }
