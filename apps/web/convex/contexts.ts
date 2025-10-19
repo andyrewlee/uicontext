@@ -599,7 +599,7 @@ const buildDeterministicDesignBrief = (
   }
 
   if (palette.length > 0) {
-    pieces.push(`Key colors include ${palette.join(", ")} with high-contrast foreground and background tones.`);
+    pieces.push(`Key colors include ${palette.join(", ")}.`);
   }
 
   if (fonts.length > 0) {
