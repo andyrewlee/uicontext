@@ -7,10 +7,17 @@ import { fetchAction } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
 // Route handler used by both the Next.js app and the Chrome extension to enqueue captures.
+type TextExtractionPayload = {
+  strategy: "site_adapter" | "dom_tree_walker" | "inner_text" | "text_content";
+  adapter?: string;
+};
+
 type SaveContextPayload = {
   type: "design" | "text";
   html?: string;
   textContent?: string;
+  markdown?: string;
+  textExtraction?: TextExtractionPayload;
   styles?: Record<string, string>;
   cssTokens?: Record<string, string>;
   selectionPath?: string;
@@ -34,10 +41,27 @@ const isValidPayload = (payload: unknown): payload is SaveContextPayload => {
     return false;
   }
 
+  const isValidTextExtraction = (value: unknown): value is TextExtractionPayload => {
+    if (!value || typeof value !== "object") {
+      return false;
+    }
+    const { strategy, adapter } = value as Record<string, unknown>;
+    const allowed = ["site_adapter", "dom_tree_walker", "inner_text", "text_content"];
+    if (!allowed.includes(strategy as string)) {
+      return false;
+    }
+    if (adapter !== undefined && typeof adapter !== "string") {
+      return false;
+    }
+    return true;
+  };
+
   const {
     type,
     html,
     textContent,
+    markdown,
+    textExtraction,
     styles,
     cssTokens,
     selectionPath,
@@ -55,6 +79,14 @@ const isValidPayload = (payload: unknown): payload is SaveContextPayload => {
   }
 
   if (textContent !== undefined && typeof textContent !== "string") {
+    return false;
+  }
+
+  if (textExtraction !== undefined && !isValidTextExtraction(textExtraction)) {
+    return false;
+  }
+
+  if (markdown !== undefined && typeof markdown !== "string") {
     return false;
   }
 
@@ -170,6 +202,8 @@ export async function POST(request: Request) {
         type: payload.type,
         html: payload.html,
         textContent: payload.textContent,
+        textExtraction: payload.textExtraction,
+        markdown: payload.markdown,
         styles: payload.styles,
         cssTokens: payload.cssTokens,
         selectionPath: payload.selectionPath,

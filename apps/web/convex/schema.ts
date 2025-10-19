@@ -21,6 +21,18 @@ export default defineSchema({
     type: v.union(v.literal("design"), v.literal("text")),
     html: v.optional(v.string()),
     textContent: v.optional(v.string()),
+    markdown: v.optional(v.string()),
+    textExtraction: v.optional(
+      v.object({
+        strategy: v.union(
+          v.literal("site_adapter"),
+          v.literal("dom_tree_walker"),
+          v.literal("inner_text"),
+          v.literal("text_content"),
+        ),
+        adapter: v.optional(v.string()),
+      }),
+    ),
     // Additional design metadata captured by the extension.
     styles: v.optional(v.record(v.string(), v.string())),
     cssTokens: v.optional(v.record(v.string(), v.string())),

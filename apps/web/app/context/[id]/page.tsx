@@ -135,6 +135,7 @@ export default async function ContextDetailPage({ params }: ContextDetailProps) 
                 styles: context.styles ?? null,
                 cssTokens: context.cssTokens ?? null,
                 textContent: context.textContent ?? null,
+                markdown: context.markdown ?? null,
                 screenshotUrl: context.screenshotUrl ?? null,
               }}
             />
@@ -178,9 +179,13 @@ export default async function ContextDetailPage({ params }: ContextDetailProps) 
               </pre>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-700">Text content</h3>
+              <h3 className="text-sm font-semibold text-slate-700">
+                {context.type === "text" ? "Markdown output" : "Text content"}
+              </h3>
               <p className="mt-2 max-h-80 overflow-auto rounded-md bg-slate-100 p-3 text-sm text-slate-700 whitespace-pre-wrap">
-                {context.textContent ?? "No text captured."}
+                {context.type === "text"
+                  ? context.markdown ?? "No markdown generated."
+                  : context.textContent ?? "No text captured."}
               </p>
             </div>
           </div>

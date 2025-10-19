@@ -9,6 +9,7 @@ type ContextCopyData = {
   styles?: Record<string, string> | null;
   cssTokens?: Record<string, string> | null;
   textContent?: string | null;
+  markdown?: string | null;
   screenshotUrl?: string | null;
   type: "design" | "text";
 };
@@ -89,7 +90,16 @@ export const ContextCopyButtons = ({ context }: ContextCopyButtonsProps) => {
 
   const promptPayload = context.aiPrompt ?? null;
   const responsePayload = context.aiResponse ?? null;
+  const textPayload = context.markdown ?? context.textContent ?? null;
   const screenshotPayload = context.screenshotUrl ?? null;
+
+  if (context.type === "text") {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <CopyButton label="Copy Text" payload={textPayload} disabled={textPayload == null} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -99,7 +109,10 @@ export const ContextCopyButtons = ({ context }: ContextCopyButtonsProps) => {
         payload={responsePayload}
         disabled={responsePayload == null}
       />
-      <CopyButton label="Copy HTML + Styles" payload={htmlBundle} />
+      <CopyButton
+        label="Copy HTML + Styles"
+        payload={htmlBundle}
+      />
       <CopyButton
         label="Copy Screenshot URL"
         payload={screenshotPayload}

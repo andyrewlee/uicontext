@@ -19,6 +19,8 @@ type RemoteContext = {
   aiError?: string | null
   html?: string | null
   textContent?: string | null
+  markdown?: string | null
+  textExtraction?: { strategy: string; adapter?: string | null } | null
   styles?: Record<string, string> | null
   cssTokens?: Record<string, string> | null
   screenshotUrl?: string | null

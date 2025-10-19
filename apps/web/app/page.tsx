@@ -21,6 +21,8 @@ type ContextRecord = {
   type: "design" | "text";
   html?: string | null;
   textContent?: string | null;
+  markdown?: string | null;
+  textExtraction?: { strategy: string; adapter?: string | null } | null;
   styles?: Record<string, string> | null;
   cssTokens?: Record<string, string> | null;
   selectionPath?: string | null;
@@ -160,7 +162,7 @@ const ContextCard = ({ context }: { context: ContextRecord }) => {
   const showAiPreview = context.aiResponse && context.aiResponse.length > 0;
   const previewText = showAiPreview
     ? context.aiResponse.slice(0, 280)
-    : context.textContent?.slice(0, 280) ?? "";
+    : (context.markdown ?? context.textContent ?? "").slice(0, 280);
 
   return (
     <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
@@ -211,6 +213,7 @@ const ContextCard = ({ context }: { context: ContextRecord }) => {
           styles: context.styles,
           cssTokens: context.cssTokens,
           textContent: context.textContent,
+          markdown: context.markdown,
           screenshotUrl: context.screenshotUrl,
         }}
       />

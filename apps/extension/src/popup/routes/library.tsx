@@ -21,6 +21,8 @@ type RemoteContext = {
   aiError?: string | null
   html?: string | null
   textContent?: string | null
+  markdown?: string | null
+  textExtraction?: { strategy: string; adapter?: string | null } | null
   styles?: Record<string, string> | null
   cssTokens?: Record<string, string> | null
   screenshotUrl?: string | null
@@ -294,7 +296,11 @@ export const Library = () => {
 const ContextCard = ({ context }: { context: RemoteContext }) => {
   const createdAt = new Date(context.createdAt)
   const updatedAt = new Date(context.updatedAt)
-  const preview = context.aiResponse?.slice(0, 260) ?? context.textContent?.slice(0, 260) ?? ''
+  const preview =
+    context.aiResponse?.slice(0, 260) ??
+    context.markdown?.slice(0, 260) ??
+    context.textContent?.slice(0, 260) ??
+    ''
 
   return (
     <article className="plasmo-flex plasmo-flex-col plasmo-gap-3 plasmo-rounded-2xl plasmo-border plasmo-border-neutral-200 plasmo-bg-white plasmo-p-4 plasmo-shadow-[0_2px_12px_rgba(15,23,42,0.06)]">
@@ -331,24 +337,34 @@ const ContextCard = ({ context }: { context: RemoteContext }) => {
         </p>
       )}
 
-      <div className="plasmo-flex plasmo-flex-wrap plasmo-gap-2">
-        <CopyButton
-          label="Copy AI Prompt"
-          payload={context.aiPrompt ?? null}
-          disabled={context.aiPrompt == null}
-        />
-        <CopyButton
-          label="Copy AI Output"
-          payload={context.aiResponse ?? null}
-          disabled={context.aiResponse == null}
-        />
-        <CopyButton label="Copy HTML + Styles" payload={buildHtmlBundle(context)} />
-        <CopyButton
-          label="Copy Screenshot URL"
-          payload={context.screenshotUrl ?? null}
-          disabled={context.screenshotUrl == null}
-        />
-      </div>
+      {context.type === 'text' ? (
+        <div className="plasmo-flex plasmo-flex-wrap plasmo-gap-2">
+          <CopyButton
+            label="Copy Text"
+            payload={context.markdown ?? context.textContent ?? null}
+            disabled={(context.markdown ?? context.textContent ?? null) == null}
+          />
+        </div>
+      ) : (
+        <div className="plasmo-flex plasmo-flex-wrap plasmo-gap-2">
+          <CopyButton
+            label="Copy AI Prompt"
+            payload={context.aiPrompt ?? null}
+            disabled={context.aiPrompt == null}
+          />
+          <CopyButton
+            label="Copy AI Output"
+            payload={context.aiResponse ?? null}
+            disabled={context.aiResponse == null}
+          />
+          <CopyButton label="Copy HTML + Styles" payload={buildHtmlBundle(context)} />
+          <CopyButton
+            label="Copy Screenshot URL"
+            payload={context.screenshotUrl ?? null}
+            disabled={context.screenshotUrl == null}
+          />
+        </div>
+      )}
     </article>
   )
 }

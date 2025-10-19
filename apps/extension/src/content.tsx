@@ -1,6 +1,9 @@
 import type { PlasmoCSConfig } from "plasmo"
 import { useEffect } from "react"
 
+import { extractTextContent } from "./text/extraction"
+import { buildMarkdown } from "./text/markdown"
+
 export const config: PlasmoCSConfig = {
   matches: ["<all_urls>"]
 }
@@ -312,6 +315,19 @@ const ElementHighlighter = () => {
         let styles: Record<string, string> | undefined
         let cssTokens: Record<string, string> | undefined
         let screenshot: string | null = null
+        let textExtraction: { strategy: string; adapter?: string } | undefined
+        let markdown: string | undefined
+
+        if (currentMode === "text") {
+          const extraction = extractTextContent(element)
+          snapshot.textContent = extraction.text
+          const markdownResult = buildMarkdown(extraction.text, extraction)
+          markdown = markdownResult.markdown
+          textExtraction = {
+            strategy: extraction.strategy,
+            ...(extraction.adapter ? { adapter: extraction.adapter } : {}),
+          }
+        }
 
         if (currentMode === "design") {
           styles = collectComputedStyles(element)
@@ -392,6 +408,8 @@ const ElementHighlighter = () => {
             styles,
             cssTokens,
             screenshot: screenshot ?? undefined,
+            textExtraction,
+            markdown,
           }),
         })
 
