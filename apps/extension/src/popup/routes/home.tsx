@@ -16,15 +16,13 @@ type RemoteContext = {
 const TOGGLE_STORAGE_KEY = 'uicontext:selector-active'
 const MODE_STORAGE_KEY = 'uicontext:selector-mode'
 
-// Toggle highlight listeners in the active tab. We scope the message to the
-// currently focused window so background tabs do not start capturing unintentionally.
-const broadcastToggle = (enabled: boolean) => {
+const forEachContentTab = (deliver: (tabId: number) => void) => {
   if (typeof chrome === 'undefined' || !chrome.tabs?.query) {
     return
   }
 
   try {
-    chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+    chrome.tabs.query({}, (tabs) => {
       if (chrome.runtime.lastError) {
         return
       }
@@ -34,11 +32,7 @@ const broadcastToggle = (enabled: boolean) => {
           return
         }
 
-        chrome.tabs.sendMessage(
-          tab.id,
-          { type: 'UICON_HIGHLIGHT_TOGGLE', enabled },
-          () => void chrome.runtime.lastError,
-        )
+        deliver(tab.id)
       })
     })
   } catch {
@@ -46,34 +40,27 @@ const broadcastToggle = (enabled: boolean) => {
   }
 }
 
+// Toggle highlight listeners in every tab where the content script might be active.
+const broadcastToggle = (enabled: boolean) => {
+  forEachContentTab((tabId) =>
+    chrome.tabs.sendMessage(
+      tabId,
+      { type: 'UICON_HIGHLIGHT_TOGGLE', enabled },
+      () => void chrome.runtime.lastError,
+    ),
+  )
+}
+
 // Tell the content script which capture mode we are in so it can decide whether
 // to collect screenshots + styles (design) or only text.
 const broadcastMode = (mode: CaptureMode) => {
-  if (typeof chrome === 'undefined' || !chrome.tabs?.query) {
-    return
-  }
-
-  try {
-    chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-      if (chrome.runtime.lastError) {
-        return
-      }
-
-      tabs.forEach((tab) => {
-        if (tab.id == null) {
-          return
-        }
-
-        chrome.tabs.sendMessage(
-          tab.id,
-          { type: 'UICON_HIGHLIGHT_MODE', mode },
-          () => void chrome.runtime.lastError,
-        )
-      })
-    })
-  } catch {
-    /* ignore delivery errors */
-  }
+  forEachContentTab((tabId) =>
+    chrome.tabs.sendMessage(
+      tabId,
+      { type: 'UICON_HIGHLIGHT_MODE', mode },
+      () => void chrome.runtime.lastError,
+    ),
+  )
 }
 
 // Persist the selector toggle in chrome.storage so the popup remembers state
@@ -146,8 +133,6 @@ export const Home = () => {
 
     return () => {
       cancelled = true
-      broadcastToggle(false)
-      persistToggleState(false)
     }
   }, [])
 

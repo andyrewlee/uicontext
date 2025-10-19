@@ -6,6 +6,40 @@ if (!publishableKey) {
   throw new Error('Please add the PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY to the .env.development file')
 }
 
+const ensureCapturePermission = async (): Promise<boolean> => {
+  if (!chrome.permissions?.contains) {
+    return true
+  }
+
+  return new Promise<boolean>((resolve) => {
+    chrome.permissions.contains({ permissions: ['tabCapture'] }, (granted) => {
+      if (chrome.runtime.lastError) {
+        resolve(false)
+        return
+      }
+
+      if (granted) {
+        resolve(true)
+        return
+      }
+
+      if (!chrome.permissions?.request) {
+        resolve(false)
+        return
+      }
+
+      chrome.permissions.request({ permissions: ['tabCapture'] }, (requestGranted) => {
+        if (chrome.runtime.lastError) {
+          resolve(false)
+          return
+        }
+
+        resolve(Boolean(requestGranted))
+      })
+    })
+  })
+}
+
 // Lazily ask Clerk for the latest session token whenever the popup/content code needs it.
 async function getToken() {
   const clerk = await createClerkClient({
@@ -43,14 +77,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if ('type' in request && request.type === 'UICON_CAPTURE_SCREENSHOT') {
     const targetWindow = sender.tab?.windowId ?? chrome.windows.WINDOW_ID_CURRENT
 
-    chrome.tabs.captureVisibleTab(targetWindow, { format: 'png' }, (dataUrl) => {
-      if (chrome.runtime.lastError) {
-        sendResponse({ dataUrl: null, error: chrome.runtime.lastError.message })
-        return
-      }
+    ensureCapturePermission()
+      .then((permissionGranted) => {
+        if (!permissionGranted) {
+          sendResponse({ dataUrl: null, error: 'Screenshot permission not granted' })
+          return
+        }
 
-      sendResponse({ dataUrl: dataUrl ?? null })
-    })
+        chrome.tabs.captureVisibleTab(targetWindow, { format: 'png' }, (dataUrl) => {
+          if (chrome.runtime.lastError) {
+            sendResponse({ dataUrl: null, error: chrome.runtime.lastError.message })
+            return
+          }
+
+          sendResponse({ dataUrl: dataUrl ?? null })
+        })
+      })
+      .catch((error) => {
+        sendResponse({ dataUrl: null, error: error instanceof Error ? error.message : String(error) })
+      })
 
     return true
   }

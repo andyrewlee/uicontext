@@ -234,31 +234,31 @@ const ElementHighlighter = () => {
         const image = await loadImage(dataUrl)
         const dpr = window.devicePixelRatio || 1
 
+        const targetWidth = Math.max(1, Math.round(rect.width * dpr))
+        const targetHeight = Math.max(1, Math.round(rect.height * dpr))
+
+        const sourceX = Math.max(0, rect.left * dpr)
+        const sourceY = Math.max(0, rect.top * dpr)
+        const availableWidth = Math.max(0, image.width - sourceX)
+        const availableHeight = Math.max(0, image.height - sourceY)
+
+        const sourceWidth = Math.min(availableWidth, targetWidth)
+        const sourceHeight = Math.min(availableHeight, targetHeight)
+
+        if (sourceWidth <= 0 || sourceHeight <= 0) {
+          return null
+        }
+
         const canvas = document.createElement("canvas")
-        canvas.width = Math.max(1, Math.round(rect.width * dpr))
-        canvas.height = Math.max(1, Math.round(rect.height * dpr))
+        canvas.width = Math.round(sourceWidth)
+        canvas.height = Math.round(sourceHeight)
 
         const context = canvas.getContext("2d")
         if (!context) {
           return null
         }
 
-        const sourceX = Math.max(0, rect.left * dpr)
-        const sourceY = Math.max(0, rect.top * dpr)
-        const sourceWidth = Math.min(image.width - sourceX, canvas.width)
-        const sourceHeight = Math.min(image.height - sourceY, canvas.height)
-
-        context.drawImage(
-          image,
-          sourceX,
-          sourceY,
-          sourceWidth,
-          sourceHeight,
-          0,
-          0,
-          canvas.width,
-          canvas.height,
-        )
+        context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height)
 
         return canvas.toDataURL("image/png")
       } catch {
@@ -300,7 +300,6 @@ const ElementHighlighter = () => {
       }
 
       requestPending = true
-      showToast("Saving selection…", "info")
 
       try {
         const snapshot = captureElementSnapshot(element)
@@ -312,12 +311,34 @@ const ElementHighlighter = () => {
           styles = collectComputedStyles(element)
           cssTokens = collectCssTokens(styles)
 
-          const fullScreenshot = await requestScreenshot()
-          if (fullScreenshot) {
-            const rect = element.getBoundingClientRect()
-            screenshot = await cropScreenshot(fullScreenshot, rect)
+          const toastElement = document.getElementById(TOAST_ID) as HTMLDivElement | null
+          const previousToastVisibility = toastElement?.style.visibility ?? ""
+
+          const previousVisibility = highlight.style.visibility
+          const shouldRestoreHighlight = previousVisibility !== "hidden"
+          highlight.style.visibility = "hidden"
+          if (toastElement) {
+            toastElement.style.visibility = "hidden"
+          }
+
+          try {
+            const fullScreenshot = await requestScreenshot()
+            if (fullScreenshot) {
+              const rect = element.getBoundingClientRect()
+              screenshot = await cropScreenshot(fullScreenshot, rect)
+            }
+          } finally {
+            highlight.style.visibility = previousVisibility
+            if (shouldRestoreHighlight && activeElement) {
+              updateHighlight(activeElement)
+            }
+            if (toastElement) {
+              toastElement.style.visibility = previousToastVisibility
+            }
           }
         }
+
+        showToast("Saving selection…", "info")
 
         const token = await getConvexToken()
         if (!token) {
