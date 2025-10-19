@@ -571,3 +571,14 @@ export const processTextContext = action({
     return processContextWithGemini(ctx, args.contextId, "text");
   },
 });
+
+export const fetchScreenshot = action({
+  args: {
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    "use node";
+    const data = await ctx.storage.get(args.storageId);
+    return data ?? null;
+  },
+});
