@@ -1,17 +1,9 @@
-import { SignIn } from '@clerk/chrome-extension'
+import { BrowserAuthButton } from '../components/browser-auth-button'
 
 export const SignInPage = () => {
   return (
-    <>
-      <p>Sign In</p>
-      <SignIn
-        appearance={{
-          elements: {
-            socialButtonsRoot: 'plasmo-hidden',
-            dividerRow: 'plasmo-hidden',
-          },
-        }}
-      />
-    </>
+    <div className="plasmo-flex plasmo-h-full plasmo-w-full plasmo-items-center plasmo-justify-center plasmo-p-8">
+      <BrowserAuthButton />
+    </div>
   )
 }
