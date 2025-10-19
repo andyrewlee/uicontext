@@ -258,10 +258,95 @@ const ElementHighlighter = () => {
     const collectComputedStyles = (element: Element): Record<string, string> => {
       const computed = getComputedStyle(element as HTMLElement)
       const styles: Record<string, string> = {}
+      const maxProperties = 900
 
-      for (let index = 0; index < computed.length; index += 1) {
+      const prioritizedProperties = [
+        "display",
+        "position",
+        "top",
+        "right",
+        "bottom",
+        "left",
+        "width",
+        "height",
+        "min-width",
+        "max-width",
+        "min-height",
+        "max-height",
+        "margin",
+        "margin-top",
+        "margin-right",
+        "margin-bottom",
+        "margin-left",
+        "padding",
+        "padding-top",
+        "padding-right",
+        "padding-bottom",
+        "padding-left",
+        "border",
+        "border-width",
+        "border-style",
+        "border-color",
+        "border-radius",
+        "background",
+        "background-color",
+        "background-image",
+        "background-size",
+        "box-shadow",
+        "opacity",
+        "z-index",
+        "color",
+        "font-family",
+        "font-size",
+        "font-weight",
+        "font-style",
+        "line-height",
+        "letter-spacing",
+        "text-transform",
+        "text-align",
+        "text-decoration",
+        "align-items",
+        "justify-content",
+        "flex",
+        "flex-direction",
+        "flex-wrap",
+        "flex-grow",
+        "flex-shrink",
+        "flex-basis",
+        "gap",
+        "row-gap",
+        "column-gap",
+        "grid",
+        "grid-template-columns",
+        "grid-template-rows",
+        "grid-column",
+        "grid-row",
+        "grid-area",
+        "align-content",
+        "justify-items",
+        "place-items",
+        "place-content",
+      ]
+
+      let count = 0
+
+      const recordProperty = (property: string | null) => {
+        if (!property || property in styles || count >= maxProperties) {
+          return
+        }
+        const value = computed.getPropertyValue(property)
+        if (!value) {
+          return
+        }
+        styles[property] = value
+        count += 1
+      }
+
+      prioritizedProperties.forEach((property) => recordProperty(property))
+
+      for (let index = 0; index < computed.length && count < maxProperties; index += 1) {
         const property = computed[index]
-        styles[property] = computed.getPropertyValue(property)
+        recordProperty(property)
       }
 
       return styles
@@ -269,12 +354,18 @@ const ElementHighlighter = () => {
 
     const collectCssTokens = (styles: Record<string, string>) => {
       const tokens: Record<string, string> = {}
+      const maxTokens = 200
+      let count = 0
 
-      Object.keys(styles).forEach((key) => {
-        if (key.startsWith("--")) {
-          tokens[key] = styles[key]
+      const styleKeys = Object.keys(styles)
+      for (let index = 0; index < styleKeys.length && count < maxTokens; index += 1) {
+        const key = styleKeys[index]
+        if (!key.startsWith("--")) {
+          continue
         }
-      })
+        tokens[key] = styles[key]
+        count += 1
+      }
 
       return tokens
     }

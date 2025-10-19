@@ -9,8 +9,10 @@
  */
 
 import type * as contexts from "../contexts.js";
+import type * as logging from "../logging.js";
 import type * as myFunctions from "../myFunctions.js";
 import type * as users from "../users.js";
+import type * as util from "../util.js";
 
 import type {
   ApiFromModules,
@@ -28,8 +30,10 @@ import type {
  */
 declare const fullApi: ApiFromModules<{
   contexts: typeof contexts;
+  logging: typeof logging;
   myFunctions: typeof myFunctions;
   users: typeof users;
+  util: typeof util;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 

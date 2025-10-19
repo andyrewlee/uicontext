@@ -7,6 +7,8 @@ import { api } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import type { Doc } from "./_generated/dataModel";
+import { logError, logInfo } from "./logging";
+import { safeStringify } from "./util";
 
 // Insert a raw capture document. This mutation is invoked via the action below after
 // any optional screenshot bytes are stored in Convex storage.
@@ -448,10 +450,85 @@ export const storeContextFailure = mutation({
 });
 
 const GEMINI_MODEL = "gemini-2.5-flash";
-const MAX_HTML_LENGTH = 6000;
-const MAX_TEXT_LENGTH = 2500;
-const MAX_STYLE_ENTRIES = 80;
-const MAX_TOKEN_ENTRIES = 60;
+const MAX_TEXT_LENGTH = 400;
+
+const collectTextFromParts = (parts: unknown): string => {
+  if (!Array.isArray(parts)) {
+    return "";
+  }
+
+  const collected: string[] = [];
+
+  const visit = (part: unknown) => {
+    if (!part || typeof part !== "object") {
+      return;
+    }
+    const candidate = part as { text?: unknown; content?: unknown };
+    if (typeof candidate.text === "string" && candidate.text.trim().length > 0) {
+      collected.push(candidate.text);
+    }
+    if (Array.isArray(candidate.content)) {
+      candidate.content.forEach(visit);
+    }
+  };
+
+  parts.forEach(visit);
+
+  return collected.join(" ");
+};
+
+const deriveModelText = (result: Awaited<ReturnType<typeof generateText>>): {
+  text: string;
+  debug?: string;
+} => {
+  const direct = (result.text ?? "").trim();
+  if (direct.length > 0) {
+    return { text: direct };
+  }
+
+  const fromContent = collectTextFromParts(result.content).trim();
+  if (fromContent.length > 0) {
+    return { text: fromContent };
+  }
+
+  const responseMessages = (result.response as { messages?: unknown })?.messages;
+  const fromMessages = collectTextFromParts(responseMessages).trim();
+  if (fromMessages.length > 0) {
+    return { text: fromMessages };
+  }
+
+  return {
+    text: "",
+    debug: safeStringify({
+      content: result.content,
+    response: result.response,
+  }),
+  };
+};
+
+const runGenerateText = async (
+  model: ReturnType<ReturnType<typeof createGoogleGenerativeAI>>,
+  prompt: string,
+  options: { maxOutputTokens: number; temperature: number },
+) => {
+  const result = await generateText({
+    model,
+    prompt: [{ role: "system", content: "You are a concise UI design describer." },
+      { role: "user", content: prompt }],
+    maxOutputTokens: options.maxOutputTokens,
+    temperature: options.temperature,
+  });
+
+  const derived = deriveModelText(result);
+
+  return {
+    text: derived.text,
+    debug: derived.debug,
+    modelId: result.response?.modelId ?? GEMINI_MODEL,
+  };
+};
+
+// (removed legacy fallback helpers)
 
 const truncate = (value: string | null | undefined, limit: number) => {
   if (!value) {
@@ -466,82 +543,82 @@ const truncate = (value: string | null | undefined, limit: number) => {
   return `${trimmed.slice(0, limit)}…`;
 };
 
-const formatKeyValueList = (
-  record: Record<string, string> | undefined,
-  limit: number,
-) => {
-  if (!record || Object.keys(record).length === 0) {
-    return "None captured.";
-  }
-
-  const entries = Object.entries(record);
-  const lines = entries.slice(0, limit).map(([key, value]) => `${key}: ${truncate(value, 120)}`);
-
-  if (entries.length > limit) {
-    lines.push(`…and ${entries.length - limit} more properties`);
-  }
-
-  return lines.join("\n");
-};
-
 const buildDesignPrompt = (context: Doc<"contexts">, screenshotUrl: string | null) => {
-  const htmlBlock = truncate(context.html ?? "", MAX_HTML_LENGTH);
-  const visibleText = truncate(context.textContent ?? "", MAX_TEXT_LENGTH);
-  const stylesBlock = formatKeyValueList(context.styles, MAX_STYLE_ENTRIES);
-  const tokensBlock = formatKeyValueList(context.cssTokens, MAX_TOKEN_ENTRIES);
-
-  const designLines: string[] = [];
-  if (context.designDetails) {
-    designLines.push(
-      `- Bounds: ${context.designDetails.bounds.width}×${context.designDetails.bounds.height}px (viewport origin x=${context.designDetails.bounds.left}, y=${context.designDetails.bounds.top})`,
-    );
-    if (context.designDetails.colorPalette && context.designDetails.colorPalette.length > 0) {
-      designLines.push(`- Palette: ${context.designDetails.colorPalette.slice(0, 8).join(", ")}`);
-    }
-    if (context.designDetails.fontFamilies && context.designDetails.fontFamilies.length > 0) {
-      designLines.push(`- Fonts: ${context.designDetails.fontFamilies.join(", ")}`);
-    }
-    if (context.designDetails.fontMetrics && context.designDetails.fontMetrics.length > 0) {
-      designLines.push(`- Font metrics: ${context.designDetails.fontMetrics.join(", ")}`);
-    }
-  }
-
-  const layoutSummary = designLines.length > 0 ? designLines.join("\n") : "- No additional layout metadata captured.";
-
-  const instructions = [
-    "Respond in Markdown with the following sections:",
-    "1. **Visual Description** – a detailed written walkthrough of the component’s layout, hierarchy, colors, typography, content, and interactive states so a teammate can imagine it without seeing the screenshot.",
-    "2. **Build Summary** – bullet list of the component’s purpose and critical visual traits.",
-    "3. **HTML** – a single code block containing semantic HTML (or JSX) that recreates the component.",
-    "4. **Styles** – a code block with CSS or Tailwind classes necessary to match spacing, colors, typography, and states.",
-    "5. **Implementation Notes** – bullet list of assumptions, responsive considerations, accessibility details, and any dynamic behavior to handle.",
-    "Assume the implementer cannot view the screenshot. Reference the provided metadata, palette, fonts, and your visual description to stay faithful to the original.",
-  ].join("\n");
+  const urlLine = screenshotUrl
+    ? `Screenshot reference: ${screenshotUrl}`
+    : "Screenshot reference: unavailable";
 
   return [
-    "You are an expert front-end engineer tasked with recreating the captured UI exactly.",
-    `Page title: ${context.pageTitle ?? "Untitled"}`,
-    `Source URL: ${context.originUrl ?? "Unknown"}`,
-    `Capture timestamp: ${new Date(context.createdAt).toISOString()}`,
-    screenshotUrl ? `Reference screenshot (short-lived): ${screenshotUrl}` : "Reference screenshot is not available.",
-    `Layout highlights:\n${layoutSummary}`,
+    "You are an expert front-end engineer describing a captured UI component so another agent can rebuild it without seeing the image directly.",
+    urlLine,
+    `Context: title="${context.pageTitle ?? "Untitled"}", origin=${context.originUrl ?? "unknown"}.`,
+    "Respond with exactly two lines.",
+    "Line 1: a single paragraph (maximum four sentences) summarizing the component’s layout, hierarchy, colors, typography, and interactive cues so it can be recreated accurately.",
+    "Line 2: `Screenshot: <url>` using the screenshot URL above (or `Screenshot: unavailable` if none exists).",
+    "Do not add bullets, code blocks, or additional commentary.",
+  ].join("\n\n");
+};
+
+const buildDeterministicDesignBrief = (
+  context: Doc<"contexts">,
+  screenshotUrl: string | null,
+): string => {
+  const bounds = context.designDetails?.bounds;
+  const palette = context.designDetails?.colorPalette?.slice(0, 4) ?? [];
+  const fonts = context.designDetails?.fontFamilies?.slice(0, 2) ?? [];
+  const textPreview = truncate(context.textContent ?? "", 160);
+
+  const pieces: string[] = [];
+
+  const baseDescription = `This component captures the "${context.pageTitle ?? "Untitled"}" UI`;
+  pieces.push(
+    bounds
+      ? `${baseDescription} at roughly ${bounds.width}×${bounds.height}px near (${bounds.left}, ${bounds.top}).`
+      : `${baseDescription}.`,
+  );
+
+  if (palette.length > 0) {
+    pieces.push(`Key colors include ${palette.join(", ")}.`);
+  }
+
+  if (fonts.length > 0) {
+    pieces.push(`Typography leans on ${fonts.join(", ")}.`);
+  }
+
+  if (textPreview) {
+    pieces.push(`Visible copy excerpt: "${textPreview}"`);
+  }
+
+  const paragraph = pieces.join(" ").trim();
+  const screenshotLine = `Screenshot: ${screenshotUrl ?? "unavailable"}`;
+
+  return `${paragraph}\n${screenshotLine}`;
+};
+
+const buildTextPrompt = (context: Doc<"contexts">) => {
+  const htmlBlock = truncate(context.html ?? "", 2000);
+  const visibleText = truncate(context.textContent ?? "", MAX_TEXT_LENGTH);
+
+  return [
+    "You are a senior product marketing copywriter. Analyze the captured copy and improve it for clarity and conversion.",
+    `Context metadata:
+- Page title: ${context.pageTitle ?? "Untitled"}
+- Origin URL: ${context.originUrl ?? "Unknown"}
+- Selection path: ${context.selectionPath ?? "N/A"}
+- Captured at (ISO): ${new Date(context.createdAt).toISOString()}`,
+    visibleText
+      ? `Original copy:
+"""
+${visibleText}
+"""`
+      : "No text content was captured.",
     htmlBlock
-      ? `Captured HTML (truncated):
+      ? `Surrounding HTML (truncated):
 \`\`\`html
 ${htmlBlock}
 \`\`\``
       : "No HTML snippet was captured.",
-    visibleText
-      ? `Visible text:
-\`\`\`
-${visibleText}
-\`\`\``
-      : "No visible text content was captured.",
-    `Computed CSS declarations (subset):
-${stylesBlock}`,
-    `CSS custom properties (subset):
-${tokensBlock}`,
-    instructions,
+    "Respond in Markdown with the following sections:\n1. **Summary** – what the current copy achieves.\n2. **Opportunities** – 3 bullet points describing clarity or persuasion improvements.\n3. **Suggested Rewrite** – a concise rewrite (≤3 sentences) that preserves intent but improves clarity.\n4. **CTA Ideas** – 2 short call-to-action phrases.",
   ].join("\n\n");
 };
 
@@ -566,6 +643,11 @@ const processDesignContextWithGemini = async (
   if (context.type !== "design") {
     return { status: "skipped" as const };
   }
+
+  logInfo("Design workflow queued", {
+    contextId: context._id,
+    screenshotCaptured: Boolean(context.screenshotStorageId),
+  });
 
   const identity = await ctx.auth.getUserIdentity();
   if (identity && ownerIdentityId && identity.tokenIdentifier !== ownerIdentityId) {
@@ -602,26 +684,39 @@ const processDesignContextWithGemini = async (
   const prompt = buildDesignPrompt(context, screenshotUrl);
 
   try {
-    const result = await generateText({
-      model,
-      prompt,
-      maxOutputTokens: 1024,
-      temperature: 0.65,
+    const result = await runGenerateText(model, prompt, {
+      maxOutputTokens: 512,
+      temperature: 0.5,
     });
 
-    const text = result.text.trim();
-    const modelId = result.response?.modelId ?? GEMINI_MODEL;
+    const resolvedText =
+      result.text && result.text.length > 0
+        ? result.text
+        : buildDeterministicDesignBrief(context, screenshotUrl);
 
     await ctx.runMutation(api.contexts.storeContextResult, {
       contextId,
       prompt,
-      response: text,
-      model: modelId,
+      response: resolvedText,
+      model: result.text ? result.modelId : "deterministic-fallback",
+    });
+
+    logInfo("Design workflow completed", {
+      contextId: context._id,
+      responseLength: resolvedText.length,
+      responsePreview: resolvedText.slice(0, 160),
+      usedDeterministicFallback: !result.text,
     });
 
     return { status: "completed" as const };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown Gemini error";
+    logError("Design workflow failed", {
+      contextId: context._id,
+      error: message,
+      promptLength: prompt.length,
+      screenshotCaptured: Boolean(screenshotUrl),
+    });
     await ctx.runMutation(api.contexts.storeContextFailure, {
       contextId,
       error: truncate(message, 500),
@@ -637,6 +732,111 @@ export const processDesignContext = action({
   handler: async (ctx, args) => {
     "use node";
     return processDesignContextWithGemini(ctx, args.contextId);
+  },
+});
+
+const processTextContextWithGemini = async (
+  ctx: ActionCtx,
+  contextId: Id<"contexts">,
+) => {
+  const payload = (await ctx.runQuery(api.contexts.getContextForProcessing, {
+    contextId,
+  })) as ProcessingPayload | null;
+
+  if (!payload) {
+    return { status: "not_found" as const };
+  }
+
+  const { context, ownerIdentityId } = payload;
+  if (context.type !== "text") {
+    return { status: "skipped" as const };
+  }
+
+  logInfo("Text workflow queued", {
+    contextId: context._id,
+  });
+
+  const identity = await ctx.auth.getUserIdentity();
+  if (identity && ownerIdentityId && identity.tokenIdentifier !== ownerIdentityId) {
+    throw new Error("Forbidden");
+  }
+
+  if (context.status === "completed" && context.aiResponse) {
+    return { status: "already_completed" as const };
+  }
+
+  if (context.status === "processing") {
+    return { status: "in_progress" as const };
+  }
+
+  await ctx.runMutation(api.contexts.markContextProcessing, { contextId });
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    await ctx.runMutation(api.contexts.storeContextFailure, {
+      contextId,
+      error: "GEMINI_API_KEY is not configured.",
+    });
+    return { status: "failed" as const };
+  }
+
+  const google = createGoogleGenerativeAI({ apiKey });
+  const model = google(GEMINI_MODEL);
+  const prompt = buildTextPrompt(context);
+
+  try {
+    const result = await generateText({
+      model,
+      prompt,
+      maxOutputTokens: 512,
+      temperature: 0.55,
+    });
+
+    const { text, debug } = deriveModelText(result);
+    if (!text) {
+      throw new Error(
+        `Gemini returned an empty response for the text brief.${debug ? ` Debug: ${debug}` : ""}`,
+      );
+    }
+
+    const modelId = result.response?.modelId ?? GEMINI_MODEL;
+
+    await ctx.runMutation(api.contexts.storeContextResult, {
+      contextId,
+      prompt,
+      response: text,
+      model: modelId,
+    });
+
+    logInfo("Text workflow completed", {
+      contextId: context._id,
+      responseLength: text.length,
+      responsePreview: text.slice(0, 160),
+    });
+
+    return { status: "completed" as const };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown Gemini error";
+    logError("Text workflow failed", {
+      contextId: context._id,
+      error: message,
+      promptLength: prompt.length,
+    });
+    await ctx.runMutation(api.contexts.storeContextFailure, {
+      contextId,
+      error: truncate(message, 500),
+    });
+    return { status: "failed" as const };
+  }
+};
+
+export const processTextContext = action({
+  args: {
+    contextId: v.id("contexts"),
+  },
+  handler: async (ctx, args) => {
+    "use node";
+    return processTextContextWithGemini(ctx, args.contextId);
   },
 });
 
