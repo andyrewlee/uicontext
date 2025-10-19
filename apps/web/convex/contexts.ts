@@ -1,4 +1,5 @@
 import { action, mutation, query } from "./_generated/server";
+import type { ActionCtx } from "./_generated/server";
 import { api } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
@@ -103,7 +104,7 @@ export const saveContextDraftWithAssets = action({
     }
 
     // Delegate the actual document insert to the mutation so schema validation remains in one place.
-    return ctx.runMutation(api.contexts.saveContextDraft, {
+    const { contextId } = await ctx.runMutation(api.contexts.saveContextDraft, {
       type: args.type,
       html: args.html,
       textContent: args.textContent,
@@ -114,6 +115,16 @@ export const saveContextDraftWithAssets = action({
       pageTitle: args.pageTitle,
       screenshotStorageId,
     });
+
+    // Kick off the appropriate workflow in the background so queued contexts become completed.
+    const target =
+      args.type === "design"
+        ? api.contexts.processDesignContext
+        : api.contexts.processTextContext;
+
+    await ctx.scheduler.runAfter(0, target, { contextId });
+
+    return { contextId };
   },
 });
 
@@ -165,32 +176,80 @@ export const listContexts = query({
   },
 });
 
-export const processDesignContext = mutation({
+export const updateContextStatus = mutation({
   args: {
     contextId: v.id("contexts"),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    updatedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const now = Date.now();
+    const context = await ctx.db.get(args.contextId);
+    if (!context) {
+      throw new Error("Context not found");
+    }
+
+    const timestamp = args.updatedAt ?? Date.now();
     await ctx.db.patch(args.contextId, {
-      status: "completed",
-      updatedAt: now,
+      status: args.status,
+      updatedAt: timestamp,
     });
 
-    return { status: "completed" as const, completedAt: now };
+    return { status: args.status, updatedAt: timestamp };
   },
 });
 
-export const processTextContext = mutation({
+const runWorkflow = async (ctx: ActionCtx, contextId: Id<"contexts">) => {
+  await ctx.runMutation(api.contexts.updateContextStatus, {
+    contextId,
+    status: "processing",
+  });
+
+  // Placeholder: later phases will invoke Gemini and enrich the document.
+  const completedAt = Date.now();
+  await ctx.runMutation(api.contexts.updateContextStatus, {
+    contextId,
+    status: "completed",
+    updatedAt: completedAt,
+  });
+
+  return { status: "completed" as const, completedAt };
+};
+
+export const processDesignContext = action({
   args: {
     contextId: v.id("contexts"),
   },
   handler: async (ctx, args) => {
-    const now = Date.now();
-    await ctx.db.patch(args.contextId, {
-      status: "completed",
-      updatedAt: now,
-    });
+    try {
+      return await runWorkflow(ctx, args.contextId);
+    } catch (error) {
+      await ctx.runMutation(api.contexts.updateContextStatus, {
+        contextId: args.contextId,
+        status: "failed",
+      }).catch(() => undefined);
+      throw error;
+    }
+  },
+});
 
-    return { status: "completed" as const, completedAt: now };
+export const processTextContext = action({
+  args: {
+    contextId: v.id("contexts"),
+  },
+  handler: async (ctx, args) => {
+    try {
+      return await runWorkflow(ctx, args.contextId);
+    } catch (error) {
+      await ctx.runMutation(api.contexts.updateContextStatus, {
+        contextId: args.contextId,
+        status: "failed",
+      }).catch(() => undefined);
+      throw error;
+    }
   },
 });
