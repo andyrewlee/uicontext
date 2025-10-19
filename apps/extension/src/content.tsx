@@ -6,8 +6,49 @@ export const config: PlasmoCSConfig = {
 }
 
 const STORAGE_KEY = "uicontext:selector-active"
+const CAPTURE_STORAGE_KEY = "uicontext:last-capture"
 const HIGHLIGHT_ID = "uicontext-element-highlight"
+const CAPTURE_MESSAGE = "UICON_CAPTURE_RESULT"
 
+// Build a rough CSS selector path to help the backend reference the element later.
+const buildDomPath = (element: Element) => {
+  const segments: string[] = []
+  let current: Element | null = element
+
+  while (current && current.parentElement) {
+    const tagName = current.tagName.toLowerCase()
+    let index = 1
+    let sibling = current.previousElementSibling
+    while (sibling) {
+      if (sibling.tagName === current.tagName) {
+        index += 1
+      }
+      sibling = sibling.previousElementSibling
+    }
+
+    segments.unshift(index > 1 ? `${tagName}:nth-of-type(${index})` : tagName)
+    current = current.parentElement
+  }
+
+  return segments.join(" > ")
+}
+
+// Gather the raw HTML/text plus useful metadata about the selected element.
+const captureElementSnapshot = (element: Element) => {
+  const html = "outerHTML" in element ? (element as HTMLElement).outerHTML : element.outerHTML ?? ""
+  const textContent = element.textContent ?? ""
+
+  return {
+    html,
+    textContent,
+    originUrl: window.location.href,
+    pageTitle: document.title,
+    selectionPath: buildDomPath(element),
+    capturedAt: Date.now(),
+  }
+}
+
+// Avoid highlighting the extension UI itself (popups, overlays).
 const isExtensionElement = (element: Element) => {
   if (element.id === HIGHLIGHT_ID) {
     return true
@@ -33,6 +74,7 @@ const isExtensionElement = (element: Element) => {
 
 const useElementHighlighter = () => {
   useEffect(() => {
+    // Create a visual highlight overlay that follows the pointer.
     const highlight = document.createElement("div")
     highlight.id = HIGHLIGHT_ID
     highlight.style.position = "fixed"
@@ -76,23 +118,6 @@ const useElementHighlighter = () => {
       return target
     }
 
-    const logElementWithChildren = (element: Element) => {
-      const descendants = element.querySelectorAll("*")
-
-      console.group("[uicontext] Selected element")
-      console.log("Element:", element)
-
-      if (descendants.length === 0) {
-        console.log("No child elements")
-      } else {
-        descendants.forEach((child, index) => {
-          console.log(`Child ${index}:`, child)
-        })
-      }
-
-      console.groupEnd()
-    }
-
     const handlePointerMove = (event: PointerEvent) => {
       if (!enabled) {
         return
@@ -126,7 +151,17 @@ const useElementHighlighter = () => {
       event.preventDefault()
       event.stopPropagation()
 
-      logElementWithChildren(target)
+      const snapshot = captureElementSnapshot(target)
+      // Persist the snapshot so the popup can reload it after Chrome closes the popup window.
+      try {
+        chrome.storage?.local?.set({ [CAPTURE_STORAGE_KEY]: snapshot }, () => void chrome.runtime.lastError)
+      } catch {
+        /* ignored */
+      }
+      chrome.runtime.sendMessage(
+        { type: CAPTURE_MESSAGE, payload: snapshot },
+        () => void chrome.runtime.lastError,
+      )
       activeElement = target
       updateHighlight(target)
     }

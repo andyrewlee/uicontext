@@ -8,7 +8,9 @@
  * @module
  */
 
+import type * as contexts from "../contexts.js";
 import type * as myFunctions from "../myFunctions.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -25,7 +27,9 @@ import type {
  * ```
  */
 declare const fullApi: ApiFromModules<{
+  contexts: typeof contexts;
   myFunctions: typeof myFunctions;
+  users: typeof users;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 
