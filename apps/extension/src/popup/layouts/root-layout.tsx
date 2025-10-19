@@ -38,7 +38,7 @@ export const RootLayout = () => {
       <div className="plasmo-flex plasmo-h-[600px] plasmo-w-[785px] plasmo-flex-col plasmo-bg-white">
         <SignedOut>
           <div className="plasmo-flex plasmo-h-full plasmo-w-full plasmo-items-center plasmo-justify-center plasmo-p-8">
-            <BrowserAuthButton mode="sign-in" />
+            <BrowserAuthButton />
           </div>
         </SignedOut>
 

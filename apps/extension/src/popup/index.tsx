@@ -7,7 +7,6 @@ import { Navigate, createMemoryRouter, RouterProvider } from 'react-router'
 import { RootLayout } from './layouts/root-layout'
 import { Home } from './routes/home'
 import { Settings } from './routes/settings'
-import { SignInPage } from './routes/sign-in'
 
 const router = createMemoryRouter([
   {
@@ -16,7 +15,6 @@ const router = createMemoryRouter([
     // Mounted where the <Outlet /> component is inside the root layout
     children: [
       { path: '/', element: <Home /> },
-      { path: '/sign-in', element: <SignInPage /> },
       { path: '/settings', element: <Settings /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
