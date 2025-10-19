@@ -32,7 +32,8 @@
     "key": "$CRX_PUBLIC_KEY",
     "permissions": [
       "cookies",
-      "storage"
+      "storage",
+      "tabs"
     ],
     "host_permissions": ["$PLASMO_PUBLIC_CLERK_SYNC_HOST/*", "$CLERK_FRONTEND_API/*"]
   }
