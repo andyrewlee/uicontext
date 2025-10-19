@@ -1,5 +1,4 @@
 type ExtractionStrategy =
-  | "site_adapter"
   | "dom_tree_walker"
   | "inner_text"
   | "text_content";
@@ -145,9 +144,60 @@ const extractWithTreeWalker = (root: Element): string => {
     },
   });
 
-  const paragraphs: string[] = [];
+  type Segment = {
+    text: string;
+    blockTag: string | null;
+    listInfo?: {
+      depth: number;
+      ordered: boolean;
+      index: number | null;
+    };
+  };
+
+  const segments: Segment[] = [];
   let currentBuffer = "";
-  let lastBlock: Element | null = null;
+  let currentBlock: Element | null = null;
+
+  const computeListInfo = (block: Element): Segment["listInfo"] => {
+    if (block.tagName.toLowerCase() !== "li") {
+      return undefined;
+    }
+
+    let depth = 0;
+    let ordered = false;
+    const parent = block.parentElement;
+
+    let ancestor: Element | null = parent;
+    while (ancestor && ancestor !== root) {
+      const tag = ancestor.tagName.toLowerCase();
+      if (tag === "ul" || tag === "ol") {
+        depth += 1;
+        if (!ordered && tag === "ol" && ancestor === parent) {
+          ordered = true;
+        }
+      }
+      ancestor = ancestor.parentElement;
+    }
+
+    if (depth === 0) {
+      depth = 1;
+    }
+
+    let index: number | null = null;
+    if (parent && parent.tagName.toLowerCase() === "ol") {
+      const siblings = Array.from(parent.children).filter(
+        (child): child is Element => child instanceof Element && child.tagName.toLowerCase() === "li",
+      );
+      const position = siblings.indexOf(block);
+      index = position >= 0 ? position + 1 : null;
+    }
+
+    return {
+      depth,
+      ordered,
+      index,
+    };
+  };
 
   const flush = () => {
     const trimmed = currentBuffer.trim();
@@ -155,9 +205,24 @@ const extractWithTreeWalker = (root: Element): string => {
       currentBuffer = "";
       return;
     }
-    paragraphs.push(
-      trimmed.replace(/[ \t]+\n/g, "\n").replace(/\n[ \t]+/g, "\n"),
-    );
+
+    const normalized = trimmed
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n[ \t]+/g, "\n");
+
+    const segment: Segment = {
+      text: normalized,
+      blockTag: currentBlock?.tagName?.toLowerCase() ?? null,
+    };
+
+    if (currentBlock) {
+      const listInfo = computeListInfo(currentBlock);
+      if (listInfo) {
+        segment.listInfo = listInfo;
+      }
+    }
+
+    segments.push(segment);
     currentBuffer = "";
   };
 
@@ -169,9 +234,9 @@ const extractWithTreeWalker = (root: Element): string => {
     }
 
     const block = findBlockAncestor(node, root);
-    if (block !== lastBlock) {
+    if (block !== currentBlock) {
       flush();
-      lastBlock = block;
+      currentBlock = block;
     } else if (hasExplicitLineBreakBefore(node, root)) {
       currentBuffer = currentBuffer.replace(/[ \t]+$/, "");
       if (!currentBuffer.endsWith("\n")) {
@@ -192,178 +257,94 @@ const extractWithTreeWalker = (root: Element): string => {
 
   flush();
 
-  return paragraphs.join("\n\n");
-};
-
-type SiteAdapter = {
-  name: string;
-  domains: string[];
-  extract: (root: Element) => string | null;
-};
-
-const redditAdapter: SiteAdapter = {
-  name: "reddit",
-  domains: ["reddit.com"],
-  extract: (root) => {
-    const commentBodies = Array.from(
-      root.querySelectorAll<HTMLElement>('[data-test-id="comment"]'),
-    );
-
-    if (commentBodies.length === 0) {
-      return null;
+  const formatSegment = (segment: Segment): string => {
+    const { blockTag, text, listInfo } = segment;
+    if (!blockTag) {
+      return text;
     }
 
-    const segments: string[] = [];
-
-    commentBodies.forEach((comment, index) => {
-      const author =
-        comment
-          .querySelector<HTMLElement>('[data-testid="comment_author_link"]')
-          ?.innerText?.trim() ??
-        comment
-          .querySelector<HTMLElement>('[data-click-id="author"]')
-          ?.innerText?.trim() ??
-        null;
-      const body =
-        extractWithTreeWalker(comment.querySelector("[data-test-id=\"comment-content\"]") ?? comment) ||
-        normalizeWhitespace(comment.innerText ?? "");
-
-      if (!body) {
-        return;
+    switch (blockTag) {
+      case "h1":
+        return text.startsWith("# ") ? text : `# ${text}`;
+      case "h2":
+        return text.startsWith("## ") ? text : `## ${text}`;
+      case "h3":
+        return text.startsWith("### ") ? text : `### ${text}`;
+      case "h4":
+        return text.startsWith("#### ") ? text : `#### ${text}`;
+      case "h5":
+        return text.startsWith("##### ") ? text : `##### ${text}`;
+      case "h6":
+        return text.startsWith("###### ") ? text : `###### ${text}`;
+      case "blockquote": {
+        const lines = text.split("\n");
+        return lines
+          .map((line) => (line.startsWith("> ") ? line : `> ${line}`))
+          .join("\n");
       }
-
-      const lines: string[] = [];
-      if (author) {
-        lines.push(`${author}:`);
+      case "pre":
+      case "code": {
+        const fence = text.includes("```") ? "~~~" : "```";
+        return `${fence}\n${text}\n${fence}`;
       }
-      lines.push(body);
-
-      segments.push(lines.join("\n"));
-
-      if (index < commentBodies.length - 1) {
-        segments.push("");
-      }
-    });
-
-    const result = segments.join("\n");
-    return result.trim() ? result : null;
-  },
-};
-
-const hackerNewsAdapter: SiteAdapter = {
-  name: "hacker-news",
-  domains: ["news.ycombinator.com"],
-  extract: (root) => {
-    const rows = Array.from(root.querySelectorAll<HTMLTableRowElement>("tr"));
-    if (rows.length === 0) {
-      return null;
-    }
-
-    const segments: string[] = [];
-    rows.forEach((row) => {
-      const titleCell = row.querySelector("td.titleline");
-      if (titleCell) {
-        const text = normalizeWhitespace(titleCell.innerText ?? "");
-        if (text) {
-          segments.push(text);
+      case "dt":
+        return `**${text}**`;
+      case "dd":
+        return text;
+      case "li": {
+        const depth = Math.max(1, listInfo?.depth ?? 1);
+        const indent = depth > 1 ? "  ".repeat(depth - 1) : "";
+        if (listInfo?.ordered) {
+          const marker = listInfo.index ?? 1;
+          return `${indent}${marker}. ${text}`;
         }
+        return `${indent}- ${text}`;
       }
+      default:
+        return text;
+    }
+  };
 
-      const commentCell = row.querySelector("td.default");
-      if (commentCell) {
-        const author =
-          commentCell.querySelector<HTMLElement>("a.hnuser")?.innerText?.trim() ??
-          null;
-        const bodyNode = commentCell.querySelector<HTMLElement>("span.commtext");
-        const body = bodyNode
-          ? extractWithTreeWalker(bodyNode)
-          : normalizeWhitespace(commentCell.innerText ?? "");
-
-        if (body) {
-          if (author) {
-            segments.push(`${author}:`);
-          }
-          segments.push(body);
-        }
-      }
-    });
-
-    const result = segments.join("\n\n");
-    return result.trim() ? result : null;
-  },
-};
-
-const twitterAdapter: SiteAdapter = {
-  name: "twitter",
-  domains: ["twitter.com", "x.com"],
-  extract: (root) => {
-    const tweetNodes = Array.from(
-      root.querySelectorAll<HTMLElement>('[data-testid="tweetText"]'),
-    );
-
-    if (tweetNodes.length === 0) {
-      const fallbackLangNodes = Array.from(
-        root.querySelectorAll<HTMLElement>('article [data-testid="tweet"] div[lang]'),
-      );
-      fallbackLangNodes.forEach((node) => {
-        if (!tweetNodes.includes(node)) {
-          tweetNodes.push(node);
-        }
-      });
+  const shouldInsertBlankLine = (
+    previous: Segment | undefined,
+    next: Segment,
+  ): boolean => {
+    if (!previous) {
+      return false;
     }
 
-    if (tweetNodes.length === 0) {
-      return null;
+    if (previous.blockTag === "li" && next.blockTag === "li") {
+      const previousDepth = previous.listInfo?.depth ?? 1;
+      const nextDepth = next.listInfo?.depth ?? 1;
+      return previousDepth !== nextDepth;
     }
 
-    const segments = tweetNodes
-      .map((node) => normalizeWhitespace(node.innerText ?? ""))
-      .filter((text) => Boolean(text));
-
-    if (segments.length === 0) {
-      return null;
+    if (previous.blockTag === "blockquote" && next.blockTag === "blockquote") {
+      return false;
     }
 
-    return segments.join("\n\n");
-  },
-};
+    return true;
+  };
 
-const SITE_ADAPTERS: SiteAdapter[] = [redditAdapter, hackerNewsAdapter, twitterAdapter];
-
-const selectAdapter = (hostname: string): SiteAdapter | null => {
-  return SITE_ADAPTERS.find((adapter) =>
-    adapter.domains.some((domain) => hostname.endsWith(domain)),
-  ) ?? null;
-};
-
-const trySiteAdapter = (root: Element): ExtractionResult | null => {
-  const adapter = selectAdapter(window.location.hostname);
-  if (!adapter) {
-    return null;
-  }
-
-  try {
-    const text = adapter.extract(root);
-    if (text && text.trim()) {
-      return {
-        text,
-        strategy: "site_adapter",
-        adapter: adapter.name,
-      };
+  const output: string[] = [];
+  segments.forEach((segment, index) => {
+    const formatted = formatSegment(segment).trimEnd();
+    if (!formatted) {
+      return;
     }
-  } catch {
-    return null;
-  }
 
-  return null;
+    const previous = segments[index - 1];
+    if (output.length > 0 && shouldInsertBlankLine(previous, segment)) {
+      output.push("");
+    }
+
+    output.push(formatted);
+  });
+
+  return output.join("\n");
 };
 
 export const extractTextContent = (root: Element): ExtractionResult => {
-  const adapterResult = trySiteAdapter(root);
-  if (adapterResult) {
-    return adapterResult;
-  }
-
   const walkerText = extractWithTreeWalker(root);
   if (walkerText.trim()) {
     return {

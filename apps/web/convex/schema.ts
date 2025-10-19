@@ -25,7 +25,6 @@ export default defineSchema({
     textExtraction: v.optional(
       v.object({
         strategy: v.union(
-          v.literal("site_adapter"),
           v.literal("dom_tree_walker"),
           v.literal("inner_text"),
           v.literal("text_content"),

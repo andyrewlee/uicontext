@@ -5,119 +5,97 @@ type MarkdownResult = {
   metadata?: Record<string, string | number>
 }
 
-type RedditComment = {
-  author: string | null
-  body: string
+const collapseWhitespace = (input: string): string => {
+  const normalized = input
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+
+  return normalized
+    .replace(/^(?:[ \t]*\n)+/, "")
+    .replace(/(?:\n[ \t]*)+$/, "")
 }
 
-type ParsedReddit = {
-  comments: RedditComment[]
-  title?: string
-  url?: string
-  subreddit?: string
-}
+const normalizeListMarkers = (input: string): string => {
+  const bulletChars = new Set(["•", "‣", "∙", "▪", "‒", "–", "—", "·", "○", "●", "◦"])
 
-const splitByBlankLines = (input: string): string[] => {
-  return input
-    .split(/\n{2,}/)
-    .map((segment) => segment.trim())
-    .filter(Boolean)
-}
+  const lines = input.split("\n")
+  return lines
+    .map((line) => {
+      const trimmedStart = line.trimStart()
+      const leading = line.slice(0, line.length - trimmedStart.length)
 
-const guessReddit = (text: string): ParsedReddit | null => {
-  const segments = splitByBlankLines(text)
-  if (segments.length === 0) {
-    return null
-  }
-
-  const comments: RedditComment[] = []
-  segments.forEach((segment) => {
-    const authorMatch = /^(?<author>[^\n:]{1,50}):\s*(?<body>[\s\S]+)/.exec(segment)
-    if (authorMatch && authorMatch.groups) {
-      const author = authorMatch.groups.author.trim()
-      const body = authorMatch.groups.body.trim()
-      if (body) {
-        comments.push({ author, body })
+      if (trimmedStart.length === 0) {
+        return ""
       }
-    } else if (segment.length > 120) {
-      comments.push({ author: null, body: segment })
-    }
-  })
 
-  if (comments.length === 0) {
-    return null
-  }
+      if (/^[-*+]\s+/.test(trimmedStart)) {
+        const content = trimmedStart.replace(/^[-*+]\s+/, "").trimStart()
+        return `${leading}- ${content}`
+      }
 
-  return {
-    comments,
-  }
+      const firstChar = trimmedStart[0]
+      if (bulletChars.has(firstChar)) {
+        const rest = trimmedStart.slice(1).trimStart()
+        return `${leading}- ${rest}`
+      }
+
+      const orderedMatch = /^(\d+)[\)\.:\-]?\s+(.*)$/.exec(trimmedStart)
+      if (orderedMatch) {
+        const [, index, rest] = orderedMatch
+        return `${leading}${index}. ${rest.trim()}`
+      }
+
+      return line
+    })
+    .join("\n")
 }
 
-const redditMarkdown = (parsed: ParsedReddit): MarkdownResult => {
-  const lines: string[] = []
-  lines.push("# Reddit Thread")
-  lines.push("")
-
-  parsed.comments.forEach(({ author, body }, index) => {
-    const heading = author ? `## ${author}` : `## Comment ${index + 1}`
-    lines.push(heading)
-    lines.push("")
-    lines.push(body)
-    lines.push("")
-  })
-
-  return {
-    markdown: lines.join("\n").trim(),
-  }
-}
-
-const guessHackerNews = (text: string): string[] | null => {
-  const lines = text
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-
-  const hasRankedLines = lines.some((line) => /^\d+\.\s+/.test(line))
-  if (!hasRankedLines) {
-    return null
-  }
+const emphasizeStandaloneLines = (input: string): string => {
+  const lines = input.split("\n")
 
   return lines
+    .map((line, index) => {
+      const trimmed = line.trim()
+      if (!trimmed) {
+        return line
+      }
+
+      const previous = index > 0 ? lines[index - 1].trim() : ""
+      const next = index < lines.length - 1 ? lines[index + 1].trim() : ""
+
+      const isIsolated = !previous && !next
+      const isHeadingCandidate =
+        trimmed.length > 0 &&
+        trimmed.length <= 60 &&
+        /[A-Za-z]/.test(trimmed) &&
+        /^[A-Z0-9 \-–—:&'"()]+$/.test(trimmed)
+
+      if (isIsolated && isHeadingCandidate && !trimmed.startsWith("#")) {
+        return `## ${trimmed}`
+      }
+
+      return line
+    })
+    .join("\n")
 }
 
-const hackerNewsMarkdown = (lines: string[]): MarkdownResult => {
-  const listItems = lines.map((line) => {
-    if (/^\d+\.\s+/.test(line)) {
-      return `1. ${line.replace(/^\d+\.\s+/, "")}`
-    }
-    return `- ${line}`
-  })
-
-  return {
-    markdown: ["# Hacker News Snapshot", "", ...listItems].join("\n").trim(),
-  }
+const buildGenericMarkdown = (text: string): string => {
+  const withLists = normalizeListMarkers(text)
+  const withHeadings = emphasizeStandaloneLines(withLists)
+  return collapseWhitespace(withHeadings)
 }
-
-const plainMarkdown = (text: string): MarkdownResult => ({
-  markdown: text,
-})
 
 export const buildMarkdown = (text: string, extraction: ExtractionResult): MarkdownResult => {
-  if (!text.trim()) {
+  const trimmed = text.trim()
+  if (!trimmed) {
     return { markdown: "" }
   }
+  void extraction
 
-  const redditParsed = guessReddit(text)
-  if (redditParsed) {
-    return redditMarkdown(redditParsed)
+  return {
+    markdown: buildGenericMarkdown(trimmed),
   }
-
-  const hnLines = guessHackerNews(text)
-  if (hnLines) {
-    return hackerNewsMarkdown(hnLines)
-  }
-
-  return plainMarkdown(text)
 }
 
 export type { MarkdownResult }

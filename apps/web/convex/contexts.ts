@@ -19,7 +19,6 @@ export const saveContextDraft = mutation({
     textExtraction: v.optional(
       v.object({
         strategy: v.union(
-          v.literal("site_adapter"),
           v.literal("dom_tree_walker"),
           v.literal("inner_text"),
           v.literal("text_content"),
@@ -88,6 +87,8 @@ export const saveContextDraft = mutation({
     }
 
     // Insert a queued context; later workflows will enrich it.
+    const isDesignCapture = args.type === "design";
+
     const contextId = await ctx.db.insert("contexts", {
       userId: user._id,
       type: args.type,
@@ -106,8 +107,8 @@ export const saveContextDraft = mutation({
       aiResponse: undefined,
       aiModel: undefined,
       aiError: undefined,
-      processedAt: undefined,
-      status: "queued",
+      processedAt: isDesignCapture ? undefined : now,
+      status: isDesignCapture ? "queued" : "completed",
       createdAt: now,
       updatedAt: now,
     });
@@ -126,7 +127,6 @@ export const saveContextDraftWithAssets = action({
     textExtraction: v.optional(
       v.object({
         strategy: v.union(
-          v.literal("site_adapter"),
           v.literal("dom_tree_walker"),
           v.literal("inner_text"),
           v.literal("text_content"),
@@ -193,13 +193,10 @@ export const saveContextDraftWithAssets = action({
       screenshotStorageId,
     });
 
-    // Kick off the appropriate workflow in the background so queued contexts become completed.
-    const target =
-      args.type === "design"
-        ? api.contexts.processDesignContext
-        : api.contexts.processTextContext;
-
-    await ctx.scheduler.runAfter(0, target, { contextId });
+    if (args.type === "design") {
+      // Kick off the design workflow so queued contexts become completed.
+      await ctx.scheduler.runAfter(0, api.contexts.processDesignContext, { contextId });
+    }
 
     return { contextId };
   },
@@ -456,23 +453,6 @@ const MAX_TEXT_LENGTH = 2500;
 const MAX_STYLE_ENTRIES = 80;
 const MAX_TOKEN_ENTRIES = 60;
 
-const getAssetBaseUrl = () => {
-  const candidate =
-    process.env.ASSET_BASE_URL ??
-    process.env.APP_ORIGIN ??
-    process.env.NEXT_PUBLIC_APP_URL ??
-    "http://localhost:3000";
-
-  return candidate.endsWith("/") ? candidate.slice(0, -1) : candidate;
-};
-
-const buildScreenshotProxyUrl = (context: Doc<"contexts">) => {
-  if (!context.screenshotStorageId) {
-    return null;
-  }
-  return `${getAssetBaseUrl()}/api/assets/${context.screenshotStorageId}`;
-};
-
 const truncate = (value: string | null | undefined, limit: number) => {
   if (!value) {
     return "";
@@ -504,12 +484,11 @@ const formatKeyValueList = (
   return lines.join("\n");
 };
 
-const buildDesignPrompt = (context: Doc<"contexts">) => {
+const buildDesignPrompt = (context: Doc<"contexts">, screenshotUrl: string | null) => {
   const htmlBlock = truncate(context.html ?? "", MAX_HTML_LENGTH);
   const visibleText = truncate(context.textContent ?? "", MAX_TEXT_LENGTH);
   const stylesBlock = formatKeyValueList(context.styles, MAX_STYLE_ENTRIES);
   const tokensBlock = formatKeyValueList(context.cssTokens, MAX_TOKEN_ENTRIES);
-  const screenshotUrl = buildScreenshotProxyUrl(context);
 
   const designLines: string[] = [];
   if (context.designDetails) {
@@ -531,11 +510,12 @@ const buildDesignPrompt = (context: Doc<"contexts">) => {
 
   const instructions = [
     "Respond in Markdown with the following sections:",
-    "1. **Build Summary** – bullet list of the component’s purpose and critical visual traits.",
-    "2. **HTML** – a single code block containing semantic HTML (or JSX) that recreates the component.",
-    "3. **Styles** – a code block with CSS or Tailwind classes necessary to match spacing, colors, typography, and states.",
-    "4. **Implementation Notes** – bullet list of any assumptions, responsive considerations, or accessibility details.",
-    "Reference the screenshot for exact spacing and visual fidelity. Use the extracted palette and fonts to stay accurate.",
+    "1. **Visual Description** – a detailed written walkthrough of the component’s layout, hierarchy, colors, typography, content, and interactive states so a teammate can imagine it without seeing the screenshot.",
+    "2. **Build Summary** – bullet list of the component’s purpose and critical visual traits.",
+    "3. **HTML** – a single code block containing semantic HTML (or JSX) that recreates the component.",
+    "4. **Styles** – a code block with CSS or Tailwind classes necessary to match spacing, colors, typography, and states.",
+    "5. **Implementation Notes** – bullet list of assumptions, responsive considerations, accessibility details, and any dynamic behavior to handle.",
+    "Assume the implementer cannot view the screenshot. Reference the provided metadata, palette, fonts, and your visual description to stay faithful to the original.",
   ].join("\n");
 
   return [
@@ -543,7 +523,7 @@ const buildDesignPrompt = (context: Doc<"contexts">) => {
     `Page title: ${context.pageTitle ?? "Untitled"}`,
     `Source URL: ${context.originUrl ?? "Unknown"}`,
     `Capture timestamp: ${new Date(context.createdAt).toISOString()}`,
-    screenshotUrl ? `Reference screenshot: ${screenshotUrl}` : "Reference screenshot is not available.",
+    screenshotUrl ? `Reference screenshot (short-lived): ${screenshotUrl}` : "Reference screenshot is not available.",
     `Layout highlights:\n${layoutSummary}`,
     htmlBlock
       ? `Captured HTML (truncated):
@@ -565,41 +545,14 @@ ${tokensBlock}`,
   ].join("\n\n");
 };
 
-const buildTextPrompt = (context: Doc<"contexts">) => {
-  const htmlBlock = truncate(context.html ?? "", 2000);
-  const visibleText = truncate(context.textContent ?? "", MAX_TEXT_LENGTH);
-
-  return [
-    "You are a senior product marketing copywriter. Analyze the captured copy and improve it for clarity and conversion.",
-    `Context metadata:
-- Page title: ${context.pageTitle ?? "Untitled"}
-- Origin URL: ${context.originUrl ?? "Unknown"}
-- Selection path: ${context.selectionPath ?? "N/A"}
-- Captured at (ISO): ${new Date(context.createdAt).toISOString()}`,
-    visibleText
-      ? `Original copy:
-"""
-${visibleText}
-"""` : "No text content was captured.",
-    htmlBlock
-      ? `Surrounding HTML (truncated):
-\`\`\`html
-${htmlBlock}
-\`\`\``
-      : "No HTML snippet was captured.",
-    "Respond in Markdown with the following sections:\n1. **Summary** – What the current copy achieves.\n2. **Opportunities** – 3 bullet points describing clarity or persuasion improvements.\n3. **Suggested Rewrite** – Provide a concise rewrite (<= 3 sentences) that keeps intent but improves clarity.\n4. **CTA Ideas** – 2 short call-to-action phrases.",
-  ].join("\n\n");
-};
-
 type ProcessingPayload = {
   context: Doc<"contexts">;
   ownerIdentityId: string | null;
 };
 
-const processContextWithGemini = async (
+const processDesignContextWithGemini = async (
   ctx: ActionCtx,
   contextId: Id<"contexts">,
-  variant: "design" | "text",
 ) => {
   const payload = (await ctx.runQuery(api.contexts.getContextForProcessing, {
     contextId,
@@ -610,7 +563,7 @@ const processContextWithGemini = async (
   }
 
   const { context, ownerIdentityId } = payload;
-  if (context.type !== variant) {
+  if (context.type !== "design") {
     return { status: "skipped" as const };
   }
 
@@ -640,14 +593,20 @@ const processContextWithGemini = async (
 
   const google = createGoogleGenerativeAI({ apiKey });
   const model = google(GEMINI_MODEL);
-  const prompt = variant === "design" ? buildDesignPrompt(context) : buildTextPrompt(context);
+
+  let screenshotUrl: string | null = null;
+  if (context.screenshotStorageId) {
+    screenshotUrl = await ctx.storage.getUrl(context.screenshotStorageId);
+  }
+
+  const prompt = buildDesignPrompt(context, screenshotUrl);
 
   try {
     const result = await generateText({
       model,
       prompt,
       maxOutputTokens: 1024,
-      temperature: variant === "design" ? 0.65 : 0.55,
+      temperature: 0.65,
     });
 
     const text = result.text.trim();
@@ -677,17 +636,7 @@ export const processDesignContext = action({
   },
   handler: async (ctx, args) => {
     "use node";
-    return processContextWithGemini(ctx, args.contextId, "design");
-  },
-});
-
-export const processTextContext = action({
-  args: {
-    contextId: v.id("contexts"),
-  },
-  handler: async (ctx, args) => {
-    "use node";
-    return processContextWithGemini(ctx, args.contextId, "text");
+    return processDesignContextWithGemini(ctx, args.contextId);
   },
 });
 

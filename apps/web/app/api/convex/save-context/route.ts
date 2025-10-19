@@ -8,7 +8,7 @@ import { api } from "@/convex/_generated/api";
 
 // Route handler used by both the Next.js app and the Chrome extension to enqueue captures.
 type TextExtractionPayload = {
-  strategy: "site_adapter" | "dom_tree_walker" | "inner_text" | "text_content";
+  strategy: "dom_tree_walker" | "inner_text" | "text_content";
   adapter?: string;
 };
 
@@ -53,7 +53,7 @@ const isValidPayload = (payload: unknown): payload is SaveContextPayload => {
       return false;
     }
     const { strategy, adapter } = value as Record<string, unknown>;
-    const allowed = ["site_adapter", "dom_tree_walker", "inner_text", "text_content"];
+    const allowed = ["dom_tree_walker", "inner_text", "text_content"];
     if (!allowed.includes(strategy as string)) {
       return false;
     }
