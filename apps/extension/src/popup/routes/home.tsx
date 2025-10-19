@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { getAppUrl, useConvexSession } from '../hooks/use-convex-session'
 
@@ -11,6 +12,16 @@ type RemoteContext = {
   pageTitle?: string
   originUrl?: string
   createdAt: number
+  updatedAt: number
+  aiPrompt?: string | null
+  aiResponse?: string | null
+  aiModel?: string | null
+  aiError?: string | null
+  html?: string | null
+  textContent?: string | null
+  styles?: Record<string, string> | null
+  cssTokens?: Record<string, string> | null
+  screenshotUrl?: string | null
 }
 
 const TOGGLE_STORAGE_KEY = 'uicontext:selector-active'
@@ -267,14 +278,22 @@ export const Home = () => {
       <div className="plasmo-flex plasmo-flex-col plasmo-gap-3 plasmo-rounded-2xl plasmo-border plasmo-border-neutral-200 plasmo-bg-white plasmo-p-6 plasmo-shadow-sm">
         <div className="plasmo-flex plasmo-items-center plasmo-justify-between">
           <span className="plasmo-text-sm plasmo-font-medium">Recent contexts ({mode})</span>
-          <button
-            type="button"
-            className="plasmo-text-xs plasmo-font-medium plasmo-text-indigo-600 hover:plasmo-text-indigo-500"
-            onClick={() => void fetchContexts()}
-            disabled={contextsLoading || sessionLoading}
-          >
-            Refresh
-          </button>
+          <div className="plasmo-flex plasmo-items-center plasmo-gap-3">
+            <Link
+              to="/library"
+              className="plasmo-text-xs plasmo-font-medium plasmo-text-neutral-500 hover:plasmo-text-neutral-800"
+            >
+              Open library →
+            </Link>
+            <button
+              type="button"
+              className="plasmo-text-xs plasmo-font-medium plasmo-text-indigo-600 hover:plasmo-text-indigo-500"
+              onClick={() => void fetchContexts()}
+              disabled={contextsLoading || sessionLoading}
+            >
+              Refresh
+            </button>
+          </div>
         </div>
 
         {contextsLoading ? (

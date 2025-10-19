@@ -2,165 +2,286 @@
 
 import {
   Authenticated,
+  AuthLoading,
   Unauthenticated,
-  useMutation,
   useQuery,
 } from "convex/react";
-import { api } from "../convex/_generated/api";
+import { useMemo, useState } from "react";
+import { SignInButton, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
-import { SignUpButton } from "@clerk/nextjs";
-import { SignInButton } from "@clerk/nextjs";
-import { UserButton } from "@clerk/nextjs";
 
-export default function Home() {
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { ContextCopyButtons } from "@/components/ContextCopyButtons";
+
+type FilterValue = "all" | "design" | "text";
+
+type ContextRecord = {
+  _id: Id<"contexts">;
+  type: "design" | "text";
+  html?: string | null;
+  textContent?: string | null;
+  styles?: Record<string, string> | null;
+  cssTokens?: Record<string, string> | null;
+  selectionPath?: string | null;
+  originUrl?: string | null;
+  pageTitle?: string | null;
+  screenshotStorageId?: Id<"_storage"> | null;
+  screenshotUrl?: string | null;
+  status: "queued" | "processing" | "completed" | "failed";
+  aiPrompt?: string | null;
+  aiResponse?: string | null;
+  aiModel?: string | null;
+  aiError?: string | null;
+  processedAt?: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+const statusStyles: Record<string, string> = {
+  queued: "bg-yellow-100 text-yellow-700 border-yellow-200",
+  processing: "bg-amber-100 text-amber-700 border-amber-200",
+  completed: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  failed: "bg-rose-100 text-rose-700 border-rose-200",
+};
+
+const typeStyles: Record<string, string> = {
+  design: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  text: "bg-sky-100 text-sky-700 border-sky-200",
+};
+
+const filterOptions: Array<{ label: string; value: FilterValue }> = [
+  { label: "All contexts", value: "all" },
+  { label: "Design", value: "design" },
+  { label: "Text", value: "text" },
+];
+
+const StatusBadge = ({
+  label,
+  kind,
+}: {
+  label: string;
+  kind: "status" | "type";
+}) => {
+  const styles = kind === "status" ? statusStyles[label] : typeStyles[label];
   return (
-    <>
-      <header className="sticky top-0 z-10 bg-background p-4 border-b-2 border-slate-200 dark:border-slate-800 flex flex-row justify-between items-center">
-        Convex + Next.js + Clerk
-        <UserButton />
-      </header>
-      <main className="p-8 flex flex-col gap-8">
-        <h1 className="text-4xl font-bold text-center">
-          Convex + Next.js + Clerk
-        </h1>
-        <Authenticated>
-          <Content />
-        </Authenticated>
-        <Unauthenticated>
-          <SignInForm />
-        </Unauthenticated>
-      </main>
-    </>
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${styles ?? "bg-slate-100 text-slate-600 border-slate-200"}`}
+    >
+      {label}
+    </span>
   );
-}
+};
 
-function SignInForm() {
+const Header = () => (
+  <header className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-background/95 px-6 py-4 backdrop-blur">
+    <div className="flex flex-col">
+      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Context dashboard
+      </span>
+      <h1 className="text-2xl font-bold text-slate-900">UI Context Library</h1>
+    </div>
+    <UserButton />
+  </header>
+);
+
+const SignInPrompt = () => (
+  <div className="flex h-full flex-col items-center justify-center gap-4 py-24">
+    <h2 className="text-2xl font-semibold text-slate-900">Sign in to view captures</h2>
+    <p className="max-w-sm text-center text-sm text-slate-500">
+      Connect your Clerk account to explore saved design and text contexts, AI summaries, and
+      screenshots captured from the extension.
+    </p>
+    <SignInButton mode="modal">
+      <button className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+        Sign in with Clerk
+      </button>
+    </SignInButton>
+  </div>
+);
+
+const LoadingState = () => (
+  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-16 text-center text-sm text-slate-500">
+    Loading captured contexts…
+  </div>
+);
+
+const EmptyState = ({ filter }: { filter: FilterValue }) => (
+  <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center">
+    <h3 className="text-lg font-semibold text-slate-800">No contexts yet</h3>
+    <p className="mt-2 text-sm text-slate-500">
+      {filter === "all"
+        ? "Use the browser extension to capture a snippet, then refresh."
+        : `No ${filter} captures yet — switch modes in the extension and try again.`}
+    </p>
+  </div>
+);
+
+const ContextSummary = ({ contexts }: { contexts: ContextRecord[] }) => {
+  const counts = useMemo(() => {
+    return contexts.reduce(
+      (acc, context) => {
+        acc.total += 1;
+        acc[context.status] = (acc[context.status] ?? 0) + 1;
+        return acc;
+      },
+      { total: 0 } as Record<string, number>,
+    );
+  }, [contexts]);
+
+  const statusOrder: Array<keyof typeof statusStyles> = [
+    "queued",
+    "processing",
+    "completed",
+    "failed",
+  ];
+
   return (
-    <div className="flex flex-col gap-8 w-96 mx-auto">
-      <p>Log in to see the numbers</p>
-      <SignInButton mode="modal">
-        <button className="bg-foreground text-background px-4 py-2 rounded-md">
-          Sign in
-        </button>
-      </SignInButton>
-      <SignUpButton mode="modal">
-        <button className="bg-foreground text-background px-4 py-2 rounded-md">
-          Sign up
-        </button>
-      </SignUpButton>
+    <div className="grid gap-3 md:grid-cols-4">
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total</p>
+        <p className="mt-1 text-2xl font-bold text-slate-900">{counts.total}</p>
+      </div>
+      {statusOrder.map((status) => (
+        <div key={status} className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {status}
+          </p>
+          <p className="mt-1 text-2xl font-bold text-slate-900">{counts[status] ?? 0}</p>
+        </div>
+      ))}
     </div>
   );
-}
+};
 
-function Content() {
-  const { viewer, numbers } =
-    useQuery(api.myFunctions.listNumbers, {
-      count: 10,
-    }) ?? {};
-  const addNumber = useMutation(api.myFunctions.addNumber);
+const ContextCard = ({ context }: { context: ContextRecord }) => {
+  const createdAt = new Date(context.createdAt);
+  const updatedAt = new Date(context.updatedAt);
+  const showAiPreview = context.aiResponse && context.aiResponse.length > 0;
+  const previewText = showAiPreview
+    ? context.aiResponse.slice(0, 280)
+    : context.textContent?.slice(0, 280) ?? "";
 
-  if (viewer === undefined || numbers === undefined) {
-    return (
-      <div className="mx-auto">
-        <p>loading... (consider a loading skeleton)</p>
+  return (
+    <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge label={context.type} kind="type" />
+            <StatusBadge label={context.status} kind="status" />
+          </div>
+          <Link
+            href={`/context/${context._id}`}
+            className="text-lg font-semibold text-slate-900 hover:text-slate-600"
+          >
+            {context.pageTitle ?? "Untitled capture"}
+          </Link>
+          <p className="text-xs text-slate-500">
+            {context.originUrl ? (
+              <a
+                href={context.originUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="underline decoration-dotted"
+              >
+                {context.originUrl}
+              </a>
+            ) : (
+              "Origin unknown"
+            )}
+          </p>
+        </div>
+        <div className="text-right text-xs text-slate-400">
+          <p>Captured: {createdAt.toLocaleString()}</p>
+          <p>Updated: {updatedAt.toLocaleString()}</p>
+        </div>
       </div>
-    );
+      {previewText && (
+        <p className="text-sm leading-relaxed text-slate-600">
+          {previewText}
+          {previewText.length === 280 ? "…" : ""}
+        </p>
+      )}
+      <ContextCopyButtons
+        context={{
+          type: context.type,
+          aiPrompt: context.aiPrompt,
+          aiResponse: context.aiResponse,
+          html: context.html,
+          styles: context.styles,
+          cssTokens: context.cssTokens,
+          textContent: context.textContent,
+          screenshotUrl: context.screenshotUrl,
+        }}
+      />
+    </article>
+  );
+};
+
+const Dashboard = () => {
+  const [filter, setFilter] = useState<FilterValue>("all");
+  const queryArgs = filter === "all" ? {} : { type: filter };
+  const contexts = useQuery(api.contexts.listContexts, queryArgs) as
+    | ContextRecord[]
+    | undefined;
+
+  if (contexts === undefined) {
+    return <LoadingState />;
   }
 
   return (
-    <div className="flex flex-col gap-8 max-w-lg mx-auto">
-      <p>Welcome {viewer ?? "Anonymous"}!</p>
-      <p>
-        Click the button below and open this page in another window - this data
-        is persisted in the Convex cloud database!
-      </p>
-      <p>
-        <button
-          className="bg-foreground text-background text-sm px-4 py-2 rounded-md"
-          onClick={() => {
-            void addNumber({ value: Math.floor(Math.random() * 10) });
-          }}
-        >
-          Add a random number
-        </button>
-      </p>
-      <p>
-        Numbers:{" "}
-        {numbers?.length === 0
-          ? "Click the button!"
-          : (numbers?.join(", ") ?? "...")}
-      </p>
-      <p>
-        Edit{" "}
-        <code className="text-sm font-bold font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded-md">
-          convex/myFunctions.ts
-        </code>{" "}
-        to change your backend
-      </p>
-      <p>
-        Edit{" "}
-        <code className="text-sm font-bold font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded-md">
-          app/page.tsx
-        </code>{" "}
-        to change your frontend
-      </p>
-      <p>
-        See the{" "}
-        <Link href="/server" className="underline hover:no-underline">
-          /server route
-        </Link>{" "}
-        for an example of loading data in a server component
-      </p>
-      <div className="flex flex-col">
-        <p className="text-lg font-bold">Useful resources:</p>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <ContextSummary contexts={contexts} />
         <div className="flex gap-2">
-          <div className="flex flex-col gap-2 w-1/2">
-            <ResourceCard
-              title="Convex docs"
-              description="Read comprehensive documentation for all Convex features."
-              href="https://docs.convex.dev/home"
-            />
-            <ResourceCard
-              title="Stack articles"
-              description="Learn about best practices, use cases, and more from a growing
-            collection of articles, videos, and walkthroughs."
-              href="https://www.typescriptlang.org/docs/handbook/2/basic-types.html"
-            />
-          </div>
-          <div className="flex flex-col gap-2 w-1/2">
-            <ResourceCard
-              title="Templates"
-              description="Browse our collection of templates to get started quickly."
-              href="https://www.convex.dev/templates"
-            />
-            <ResourceCard
-              title="Discord"
-              description="Join our developer community to ask questions, trade tips & tricks,
-            and show off your projects."
-              href="https://www.convex.dev/community"
-            />
-          </div>
+          {filterOptions.map((option) => {
+            const isActive = option.value === filter;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setFilter(option.value)}
+                className={`rounded-full border px-4 py-2 text-xs font-medium transition ${
+                  isActive
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-800"
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
         </div>
       </div>
+
+      {contexts.length === 0 ? (
+        <EmptyState filter={filter} />
+      ) : (
+        <div className="grid gap-4">
+          {contexts.map((context) => (
+            <ContextCard key={context._id} context={context} />
+          ))}
+        </div>
+      )}
     </div>
   );
-}
+};
 
-function ResourceCard({
-  title,
-  description,
-  href,
-}: {
-  title: string;
-  description: string;
-  href: string;
-}) {
+export default function Home() {
   return (
-    <div className="flex flex-col gap-2 bg-slate-200 dark:bg-slate-800 p-4 rounded-md h-28 overflow-auto">
-      <a href={href} className="text-sm underline hover:no-underline">
-        {title}
-      </a>
-      <p className="text-xs">{description}</p>
+    <div className="flex min-h-screen flex-col bg-slate-50">
+      <Header />
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-10">
+        <Authenticated>
+          <Dashboard />
+        </Authenticated>
+        <AuthLoading>
+          <LoadingState />
+        </AuthLoading>
+        <Unauthenticated>
+          <SignInPrompt />
+        </Unauthenticated>
+      </main>
     </div>
   );
 }

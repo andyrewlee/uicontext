@@ -1,8 +1,12 @@
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { generateText } from "ai";
+
 import { action, mutation, query } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { api } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 
 // Insert a raw capture document. This mutation is invoked via the action below after
 // any optional screenshot bytes are stored in Convex storage.
@@ -64,6 +68,11 @@ export const saveContextDraft = mutation({
       originUrl: args.originUrl ?? undefined,
       pageTitle: args.pageTitle ?? undefined,
       screenshotStorageId: args.screenshotStorageId ?? undefined,
+      aiPrompt: undefined,
+      aiResponse: undefined,
+      aiModel: undefined,
+      aiError: undefined,
+      processedAt: undefined,
       status: "queued",
       createdAt: now,
       updatedAt: now,
@@ -156,68 +165,391 @@ export const listContexts = query({
       ? contexts.filter((context) => context.type === args.type)
       : contexts;
 
-    return filtered
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .map((context) => ({
-        _id: context._id,
-        type: context.type,
-        html: context.html,
-        textContent: context.textContent,
-        styles: context.styles,
-        cssTokens: context.cssTokens,
-        selectionPath: context.selectionPath,
-        originUrl: context.originUrl,
-        pageTitle: context.pageTitle,
-        screenshotStorageId: context.screenshotStorageId,
-        status: context.status,
-        createdAt: context.createdAt,
-        updatedAt: context.updatedAt,
-      }));
+    const sorted = filtered.sort((a, b) => b.createdAt - a.createdAt);
+
+    const enriched = await Promise.all(
+      sorted.map(async (context) => {
+        const screenshotUrl = context.screenshotStorageId
+          ? await ctx.storage.getUrl(context.screenshotStorageId)
+          : null;
+
+        return {
+          _id: context._id,
+          type: context.type,
+          html: context.html,
+          textContent: context.textContent,
+          styles: context.styles,
+          cssTokens: context.cssTokens,
+          selectionPath: context.selectionPath,
+          originUrl: context.originUrl,
+          pageTitle: context.pageTitle,
+          screenshotStorageId: context.screenshotStorageId,
+          screenshotUrl,
+          status: context.status,
+          aiPrompt: context.aiPrompt ?? null,
+          aiResponse: context.aiResponse ?? null,
+          aiModel: context.aiModel ?? null,
+          aiError: context.aiError ?? null,
+          processedAt: context.processedAt ?? null,
+          createdAt: context.createdAt,
+          updatedAt: context.updatedAt,
+        };
+      }),
+    );
+
+    return enriched;
   },
 });
 
-export const updateContextStatus = mutation({
+export const getContextById = query({
   args: {
     contextId: v.id("contexts"),
-    status: v.union(
-      v.literal("queued"),
-      v.literal("processing"),
-      v.literal("completed"),
-      v.literal("failed"),
-    ),
-    updatedAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_identityId", (q) => q.eq("identityId", identity.tokenIdentifier))
+      .first();
+
+    if (!user) {
+      return null;
+    }
+
+    const context = await ctx.db.get(args.contextId);
+    if (!context || context.userId !== user._id) {
+      return null;
+    }
+
+    const screenshotUrl = context.screenshotStorageId
+      ? await ctx.storage.getUrl(context.screenshotStorageId)
+      : null;
+
+    return {
+      _id: context._id,
+      type: context.type,
+      html: context.html,
+      textContent: context.textContent,
+      styles: context.styles,
+      cssTokens: context.cssTokens,
+      selectionPath: context.selectionPath,
+      originUrl: context.originUrl,
+      pageTitle: context.pageTitle,
+      screenshotStorageId: context.screenshotStorageId,
+      screenshotUrl,
+      status: context.status,
+      aiPrompt: context.aiPrompt ?? null,
+      aiResponse: context.aiResponse ?? null,
+      aiModel: context.aiModel ?? null,
+      aiError: context.aiError ?? null,
+      processedAt: context.processedAt ?? null,
+      createdAt: context.createdAt,
+      updatedAt: context.updatedAt,
+    };
+  },
+});
+
+export const getContextForProcessing = query({
+  args: {
+    contextId: v.id("contexts"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    const context = await ctx.db.get(args.contextId);
+    if (!context) {
+      return null;
+    }
+
+    const owner = await ctx.db.get(context.userId);
+    const ownerIdentityId = owner?.identityId ?? null;
+
+    if (
+      identity &&
+      ownerIdentityId &&
+      identity.tokenIdentifier !== ownerIdentityId
+    ) {
+      throw new Error("Forbidden");
+    }
+
+    if (identity && !ownerIdentityId) {
+      throw new Error("Forbidden");
+    }
+
+    return {
+      context,
+      ownerIdentityId,
+    };
+  },
+});
+
+export const markContextProcessing = mutation({
+  args: {
+    contextId: v.id("contexts"),
   },
   handler: async (ctx, args) => {
     const context = await ctx.db.get(args.contextId);
     if (!context) {
-      throw new Error("Context not found");
+      return;
     }
 
-    const timestamp = args.updatedAt ?? Date.now();
-    await ctx.db.patch(args.contextId, {
-      status: args.status,
-      updatedAt: timestamp,
-    });
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity) {
+      const owner = await ctx.db.get(context.userId);
+      if (!owner || owner.identityId !== identity.tokenIdentifier) {
+        throw new Error("Forbidden");
+      }
+    }
 
-    return { status: args.status, updatedAt: timestamp };
+    const now = Date.now();
+    await ctx.db.patch(args.contextId, {
+      status: "processing",
+      aiError: undefined,
+      updatedAt: now,
+    });
   },
 });
 
-const runWorkflow = async (ctx: ActionCtx, contextId: Id<"contexts">) => {
-  await ctx.runMutation(api.contexts.updateContextStatus, {
-    contextId,
-    status: "processing",
-  });
+export const storeContextResult = mutation({
+  args: {
+    contextId: v.id("contexts"),
+    prompt: v.string(),
+    response: v.string(),
+    model: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const context = await ctx.db.get(args.contextId);
+    if (!context) {
+      return;
+    }
 
-  // Placeholder: later phases will invoke Gemini and enrich the document.
-  const completedAt = Date.now();
-  await ctx.runMutation(api.contexts.updateContextStatus, {
-    contextId,
-    status: "completed",
-    updatedAt: completedAt,
-  });
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity) {
+      const owner = await ctx.db.get(context.userId);
+      if (!owner || owner.identityId !== identity.tokenIdentifier) {
+        throw new Error("Forbidden");
+      }
+    }
 
-  return { status: "completed" as const, completedAt };
+    const now = Date.now();
+    await ctx.db.patch(args.contextId, {
+      status: "completed",
+      aiPrompt: args.prompt,
+      aiResponse: args.response,
+      aiModel: args.model,
+      aiError: undefined,
+      processedAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const storeContextFailure = mutation({
+  args: {
+    contextId: v.id("contexts"),
+    error: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const context = await ctx.db.get(args.contextId);
+    if (!context) {
+      return;
+    }
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity) {
+      const owner = await ctx.db.get(context.userId);
+      if (!owner || owner.identityId !== identity.tokenIdentifier) {
+        throw new Error("Forbidden");
+      }
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(args.contextId, {
+      status: "failed",
+      aiError: args.error,
+      processedAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+const GEMINI_MODEL = "gemini-2.5-flash";
+const MAX_HTML_LENGTH = 6000;
+const MAX_TEXT_LENGTH = 2500;
+const MAX_STYLE_ENTRIES = 80;
+const MAX_TOKEN_ENTRIES = 60;
+
+const truncate = (value: string | null | undefined, limit: number) => {
+  if (!value) {
+    return "";
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length <= limit) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, limit)}…`;
+};
+
+const formatKeyValueList = (
+  record: Record<string, string> | undefined,
+  limit: number,
+) => {
+  if (!record || Object.keys(record).length === 0) {
+    return "None captured.";
+  }
+
+  const entries = Object.entries(record);
+  const lines = entries.slice(0, limit).map(([key, value]) => `${key}: ${truncate(value, 120)}`);
+
+  if (entries.length > limit) {
+    lines.push(`…and ${entries.length - limit} more properties`);
+  }
+
+  return lines.join("\n");
+};
+
+const buildDesignPrompt = (context: Doc<"contexts">) => {
+  const htmlBlock = truncate(context.html ?? "", MAX_HTML_LENGTH);
+  const visibleText = truncate(context.textContent ?? "", MAX_TEXT_LENGTH);
+  const stylesBlock = formatKeyValueList(context.styles, MAX_STYLE_ENTRIES);
+  const tokensBlock = formatKeyValueList(context.cssTokens, MAX_TOKEN_ENTRIES);
+
+  return [
+    "You are a senior product designer and front-end engineer. Evaluate the captured UI element and produce concrete feedback the builder can act on.",
+    `Context metadata:
+- Page title: ${context.pageTitle ?? "Untitled"}
+- Origin URL: ${context.originUrl ?? "Unknown"}
+- Selection path: ${context.selectionPath ?? "N/A"}
+- Captured at (ISO): ${new Date(context.createdAt).toISOString()}`,
+    htmlBlock
+      ? `HTML snippet:
+\`\`\`html
+${htmlBlock}
+\`\`\``
+      : "No HTML snippet was captured.",
+    visibleText
+      ? `Visible text content:
+\`\`\`
+${visibleText}
+\`\`\``
+      : "No visible text content was captured.",
+    `Computed CSS declarations (subset):
+${stylesBlock}`,
+    `CSS custom properties (subset):
+${tokensBlock}`,
+    "Respond in Markdown with the following sections:\n1. **At a Glance** – 2 short bullets summarizing what this component communicates.\n2. **Design Recommendations** – 3 to 5 numbered suggestions referencing specific visual details (colors, spacing, typography, accessibility).\n3. **Implementation Hints** – Bullet list of concrete CSS/HTML tweaks (selectors + values) to achieve the recommendations.\nKeep the response under 250 words.",
+  ].join("\n\n");
+};
+
+const buildTextPrompt = (context: Doc<"contexts">) => {
+  const htmlBlock = truncate(context.html ?? "", 2000);
+  const visibleText = truncate(context.textContent ?? "", MAX_TEXT_LENGTH);
+
+  return [
+    "You are a senior product marketing copywriter. Analyze the captured copy and improve it for clarity and conversion.",
+    `Context metadata:
+- Page title: ${context.pageTitle ?? "Untitled"}
+- Origin URL: ${context.originUrl ?? "Unknown"}
+- Selection path: ${context.selectionPath ?? "N/A"}
+- Captured at (ISO): ${new Date(context.createdAt).toISOString()}`,
+    visibleText
+      ? `Original copy:
+"""
+${visibleText}
+"""` : "No text content was captured.",
+    htmlBlock
+      ? `Surrounding HTML (truncated):
+\`\`\`html
+${htmlBlock}
+\`\`\``
+      : "No HTML snippet was captured.",
+    "Respond in Markdown with the following sections:\n1. **Summary** – What the current copy achieves.\n2. **Opportunities** – 3 bullet points describing clarity or persuasion improvements.\n3. **Suggested Rewrite** – Provide a concise rewrite (<= 3 sentences) that keeps intent but improves clarity.\n4. **CTA Ideas** – 2 short call-to-action phrases.",
+  ].join("\n\n");
+};
+
+type ProcessingPayload = {
+  context: Doc<"contexts">;
+  ownerIdentityId: string | null;
+};
+
+const processContextWithGemini = async (
+  ctx: ActionCtx,
+  contextId: Id<"contexts">,
+  variant: "design" | "text",
+) => {
+  const payload = (await ctx.runQuery(api.contexts.getContextForProcessing, {
+    contextId,
+  })) as ProcessingPayload | null;
+
+  if (!payload) {
+    return { status: "not_found" as const };
+  }
+
+  const { context, ownerIdentityId } = payload;
+  if (context.type !== variant) {
+    return { status: "skipped" as const };
+  }
+
+  const identity = await ctx.auth.getUserIdentity();
+  if (identity && ownerIdentityId && identity.tokenIdentifier !== ownerIdentityId) {
+    throw new Error("Forbidden");
+  }
+
+  if (context.status === "completed" && context.aiResponse) {
+    return { status: "already_completed" as const };
+  }
+
+  if (context.status === "processing") {
+    return { status: "in_progress" as const };
+  }
+
+  await ctx.runMutation(api.contexts.markContextProcessing, { contextId });
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    await ctx.runMutation(api.contexts.storeContextFailure, {
+      contextId,
+      error: "GEMINI_API_KEY is not configured.",
+    });
+    return { status: "failed" as const };
+  }
+
+  const google = createGoogleGenerativeAI({ apiKey });
+  const model = google(GEMINI_MODEL);
+  const prompt = variant === "design" ? buildDesignPrompt(context) : buildTextPrompt(context);
+
+  try {
+    const result = await generateText({
+      model,
+      prompt,
+      maxOutputTokens: 1024,
+      temperature: variant === "design" ? 0.65 : 0.55,
+    });
+
+    const text = result.text.trim();
+    const modelId = result.response?.modelId ?? GEMINI_MODEL;
+
+    await ctx.runMutation(api.contexts.storeContextResult, {
+      contextId,
+      prompt,
+      response: text,
+      model: modelId,
+    });
+
+    return { status: "completed" as const };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown Gemini error";
+    await ctx.runMutation(api.contexts.storeContextFailure, {
+      contextId,
+      error: truncate(message, 500),
+    });
+    return { status: "failed" as const };
+  }
 };
 
 export const processDesignContext = action({
@@ -225,15 +557,8 @@ export const processDesignContext = action({
     contextId: v.id("contexts"),
   },
   handler: async (ctx, args) => {
-    try {
-      return await runWorkflow(ctx, args.contextId);
-    } catch (error) {
-      await ctx.runMutation(api.contexts.updateContextStatus, {
-        contextId: args.contextId,
-        status: "failed",
-      }).catch(() => undefined);
-      throw error;
-    }
+    "use node";
+    return processContextWithGemini(ctx, args.contextId, "design");
   },
 });
 
@@ -242,14 +567,7 @@ export const processTextContext = action({
     contextId: v.id("contexts"),
   },
   handler: async (ctx, args) => {
-    try {
-      return await runWorkflow(ctx, args.contextId);
-    } catch (error) {
-      await ctx.runMutation(api.contexts.updateContextStatus, {
-        contextId: args.contextId,
-        status: "failed",
-      }).catch(() => undefined);
-      throw error;
-    }
+    "use node";
+    return processContextWithGemini(ctx, args.contextId, "text");
   },
 });

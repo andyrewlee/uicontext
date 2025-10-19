@@ -137,11 +137,17 @@ const ElementHighlighter = () => {
     }
 
     let activeElement: Element | null = null
+    let suppressHighlight = false
     let enabled = false
     let currentMode: CaptureMode = "design"
     let requestPending = false
 
     const updateHighlight = (element: Element | null) => {
+      if (suppressHighlight) {
+        highlight.style.display = "none"
+        return
+      }
+
       if (!element) {
         highlight.style.display = "none"
         activeElement = null
@@ -313,13 +319,28 @@ const ElementHighlighter = () => {
 
           const toastElement = document.getElementById(TOAST_ID) as HTMLDivElement | null
           const previousToastVisibility = toastElement?.style.visibility ?? ""
+          const previousToastDisplay = toastElement?.style.display ?? ""
 
           const previousVisibility = highlight.style.visibility
-          const shouldRestoreHighlight = previousVisibility !== "hidden"
+          const previousDisplay = highlight.style.display
+
+          suppressHighlight = true
+          const highlightParent = highlight.parentNode
+          const highlightNextSibling = highlight.nextSibling
           highlight.style.visibility = "hidden"
+          highlight.style.display = "none"
           if (toastElement) {
             toastElement.style.visibility = "hidden"
+            toastElement.style.display = "none"
           }
+
+          if (highlightParent instanceof Node) {
+            highlightParent.removeChild(highlight)
+          }
+
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          )
 
           try {
             const fullScreenshot = await requestScreenshot()
@@ -328,12 +349,21 @@ const ElementHighlighter = () => {
               screenshot = await cropScreenshot(fullScreenshot, rect)
             }
           } finally {
+            suppressHighlight = false
+            if (
+              !(highlight.parentNode instanceof Node) &&
+              highlightParent instanceof Node
+            ) {
+              highlightParent.insertBefore(highlight, highlightNextSibling)
+            }
             highlight.style.visibility = previousVisibility
-            if (shouldRestoreHighlight && activeElement) {
+            highlight.style.display = previousDisplay
+            if (activeElement) {
               updateHighlight(activeElement)
             }
             if (toastElement) {
               toastElement.style.visibility = previousToastVisibility
+              toastElement.style.display = previousToastDisplay
             }
           }
         }

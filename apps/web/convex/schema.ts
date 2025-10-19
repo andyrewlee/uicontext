@@ -28,6 +28,11 @@ export default defineSchema({
     originUrl: v.optional(v.string()),
     pageTitle: v.optional(v.string()),
     selectionPath: v.optional(v.string()),
+    aiPrompt: v.optional(v.string()),
+    aiResponse: v.optional(v.string()),
+    aiModel: v.optional(v.string()),
+    aiError: v.optional(v.string()),
+    processedAt: v.optional(v.number()),
     status: v.union(
       v.literal("queued"),
       v.literal("processing"),
