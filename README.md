@@ -1,135 +1,35 @@
-# Turborepo starter
+# UI Context
 
-This Turborepo starter is maintained by the Turborepo core team.
+Context augmentation for your AI agents via copy and paste. Click on elements via Chrome Extension to either extract text or component screenshot to your context library. Access your context library on the web where you can copy the context to your clipboard to paste it into your AI agent.
 
-## Using this example
+**Chrome Extension**
+<img width="1345" height="849" alt="image" src="https://github.com/user-attachments/assets/28f9aa35-ba2e-4591-b574-91f09e0387da" />
 
-Run the following command:
+**Web Dashboard**
+<img width="1345" height="880" alt="image" src="https://github.com/user-attachments/assets/65d5f2b7-8f86-4689-b710-d743f6448d7e" />
 
-```sh
-npx create-turbo@latest
-```
 
-## What's inside?
+There are major benefits to saving context via Chrome Extension. Even if the web page doesn't support "copy as Markdown" or is a protected web page, Chrome Extension is able to extract required information unlike other tools in the market that require the website to be public and/or allow bots.
 
-This Turborepo includes the following packages/apps:
+UI Context has two main modes:
+* Design Mode: when you want to select a specific component on the website to either clone/remix
+* Text Mode: when you want to select a portion of the website and extract just the text
 
-### Apps and Packages
+## Design Mode
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+<img width="1342" height="846" alt="image" src="https://github.com/user-attachments/assets/47866ea1-d1a9-4dcf-acb8-12ebcd2d7553" />
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+Click on any UI element on any website to add it to your context library. Once an UI element is clicked, the following happens:
+1. Screenshot along with metadata (styles, HTML) are saved to the database.
+2. Data regarding the UI element is piped through Gemini 2.5 Flash to generate a concise prompt that also contains a URL to the screenshot.
+3. This prompt can be accessed at any time on dashboard. Easy as clicking Copy AI output.
 
-### Utilities
+## Text Mode
 
-This Turborepo has some additional tools already setup for you:
+<img width="1342" height="827" alt="image" src="https://github.com/user-attachments/assets/23fac998-bda6-4d68-9d45-6138e2ff10c8" />
 
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build
-
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build
-yarn dlx turbo build
-pnpm exec turbo build
-```
-
-You can build a specific package by using a [filter](https://turborepo.com/docs/crafting-your-repository/running-tasks#using-filters):
-
-```
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build --filter=docs
-
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build --filter=docs
-yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-```
-
-### Develop
-
-To develop all apps and packages, run the following command:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev
-
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev
-yarn exec turbo dev
-pnpm exec turbo dev
-```
-
-You can develop a specific package by using a [filter](https://turborepo.com/docs/crafting-your-repository/running-tasks#using-filters):
-
-```
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev --filter=web
-
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev --filter=web
-yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.com/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo login
-
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo login
-yarn exec turbo login
-pnpm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-```
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo link
-
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo link
-yarn exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.com/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.com/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.com/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.com/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.com/docs/reference/configuration)
-- [CLI Usage](https://turborepo.com/docs/reference/command-line-reference)
+Click on any UI element on any website and it will do the following:
+1. Save the HTML of the element as well as all of the child elements
+2. Extract just the text and save it to context library
+3. This text can be accessed at any time on dashboard. Easy as clicking Copy Text.
+   
