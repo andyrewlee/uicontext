@@ -557,7 +557,8 @@ const buildDesignPrompt = (context: Doc<"contexts">, screenshotUrl: string | nul
     urlLine,
     `Context: title="${context.pageTitle ?? "Untitled"}", origin=${context.originUrl ?? "unknown"}.`,
     "Respond with exactly one paragraph that begins with `Recreate this screenshot: <url>.` where <url> is the screenshot URL above (or the text `unavailable` if no screenshot is provided).",
-    "After that leading clause, continue the same paragraph describing the component’s layout, hierarchy, colors, typography, and interactive cues so another agent can rebuild it accurately.",
+    "After that leading clause, continue the same paragraph with a high-level narrative description that makes it clear the goal is to reproduce the captured interface pixel-for-pixel. Call out the layout, number of sections or rows, ordering of elements, key copy blocks, color palette, typography choices, and interaction affordances (icons, badges, hover/focus states).",
+    "Explicitly instruct the implementer not to deviate from the captured visual design and to match spacing, borders, and alignment as closely as possible.",
     "Do not add extra lines, bullets, or code blocks.",
   ].join("\n\n");
 };
@@ -569,13 +570,15 @@ const buildDeterministicDesignBrief = (
   const bounds = context.designDetails?.bounds;
   const palette = context.designDetails?.colorPalette?.slice(0, 4) ?? [];
   const fonts = context.designDetails?.fontFamilies?.slice(0, 2) ?? [];
-  const textPreview = context.textContent?.trim()
+  const contentSummary = context.textContent?.trim()
     ? truncate(
         context.textContent
           .replace(/\s+/g, " ")
-          .slice(0, 260)
+          .split(/(?<=[.!?])\s+/)
+          .slice(0, 3)
+          .join(" ")
           .replace(/"/g, ""),
-        280,
+        300,
       )
     : null;
 
@@ -596,18 +599,20 @@ const buildDeterministicDesignBrief = (
   }
 
   if (palette.length > 0) {
-    pieces.push(`Key colors include ${palette.join(", ")} with muted backgrounds and high-contrast text.`);
+    pieces.push(`Key colors include ${palette.join(", ")} with high-contrast foreground and background tones.`);
   }
 
   if (fonts.length > 0) {
     pieces.push(`Typography leans on ${fonts.join(", ")} with consistent weights for headings and body copy.`);
   }
 
-  if (textPreview) {
-    pieces.push(`Primary messaging references content such as ${textPreview}.`);
+  if (contentSummary) {
+    pieces.push(`Primary messaging surfaces content such as ${contentSummary}.`);
   }
 
-  pieces.push("Recreate using stacked sections, generous vertical spacing, and polished hover/focus states for interactive elements.");
+  pieces.push(
+    "Ensure the rebuilt UI mirrors the captured layout and hierarchy exactly — match spacing, alignment, border radius, and interactive affordances seen in the screenshot without introducing new visual treatments.",
+  );
 
   const paragraph = pieces.join(" ").trim();
 
