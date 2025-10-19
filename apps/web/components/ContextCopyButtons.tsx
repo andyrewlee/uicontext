@@ -72,8 +72,11 @@ const CopyButton = ({ label, payload, disabled }: CopyButtonProps) => {
   return (
     <button
       type="button"
-      className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-      onClick={() => void handleCopy()}
+      className="rounded-md border border-slate-400 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 disabled:opacity-70"
+      onClick={(event) => {
+        event.stopPropagation();
+        void handleCopy();
+      }}
       disabled={isDisabled}
     >
       {copied ? "Copied!" : label}

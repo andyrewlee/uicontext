@@ -540,7 +540,11 @@ const truncate = (value: string | null | undefined, limit: number) => {
     return trimmed;
   }
 
-  return `${trimmed.slice(0, limit)}…`;
+  const suffix = "…";
+  if (limit <= suffix.length) {
+    return suffix;
+  }
+  return `${trimmed.slice(0, limit - suffix.length)}${suffix}`;
 };
 
 const buildDesignPrompt = (context: Doc<"contexts">, screenshotUrl: string | null) => {
@@ -552,10 +556,9 @@ const buildDesignPrompt = (context: Doc<"contexts">, screenshotUrl: string | nul
     "You are an expert front-end engineer describing a captured UI component so another agent can rebuild it without seeing the image directly.",
     urlLine,
     `Context: title="${context.pageTitle ?? "Untitled"}", origin=${context.originUrl ?? "unknown"}.`,
-    "Respond with exactly two lines.",
-    "Line 1: a single paragraph (maximum four sentences) summarizing the component’s layout, hierarchy, colors, typography, and interactive cues so it can be recreated accurately.",
-    "Line 2: `Screenshot: <url>` using the screenshot URL above (or `Screenshot: unavailable` if none exists).",
-    "Do not add bullets, code blocks, or additional commentary.",
+    "Respond with exactly one paragraph that begins with `Recreate this screenshot: <url>.` where <url> is the screenshot URL above (or the text `unavailable` if no screenshot is provided).",
+    "After that leading clause, continue the same paragraph describing the component’s layout, hierarchy, colors, typography, and interactive cues so another agent can rebuild it accurately.",
+    "Do not add extra lines, bullets, or code blocks.",
   ].join("\n\n");
 };
 
@@ -566,33 +569,49 @@ const buildDeterministicDesignBrief = (
   const bounds = context.designDetails?.bounds;
   const palette = context.designDetails?.colorPalette?.slice(0, 4) ?? [];
   const fonts = context.designDetails?.fontFamilies?.slice(0, 2) ?? [];
-  const textPreview = truncate(context.textContent ?? "", 160);
+  const textPreview = context.textContent?.trim()
+    ? truncate(
+        context.textContent
+          .replace(/\s+/g, " ")
+          .slice(0, 260)
+          .replace(/"/g, ""),
+        280,
+      )
+    : null;
 
   const pieces: string[] = [];
 
+  const viewport = context.designDetails?.viewport;
   const baseDescription = `This component captures the "${context.pageTitle ?? "Untitled"}" UI`;
   pieces.push(
     bounds
-      ? `${baseDescription} at roughly ${bounds.width}×${bounds.height}px near (${bounds.left}, ${bounds.top}).`
+      ? `${baseDescription} at roughly ${bounds.width}×${bounds.height}px near (${bounds.left}, ${bounds.top}) relative to the viewport.`
       : `${baseDescription}.`,
   );
 
+  if (viewport) {
+    pieces.push(
+      `Viewport was approximately ${viewport.width}×${viewport.height}px with scroll offset (${viewport.scrollX}, ${viewport.scrollY}), so respect long vertical flow when rebuilding.`,
+    );
+  }
+
   if (palette.length > 0) {
-    pieces.push(`Key colors include ${palette.join(", ")}.`);
+    pieces.push(`Key colors include ${palette.join(", ")} with muted backgrounds and high-contrast text.`);
   }
 
   if (fonts.length > 0) {
-    pieces.push(`Typography leans on ${fonts.join(", ")}.`);
+    pieces.push(`Typography leans on ${fonts.join(", ")} with consistent weights for headings and body copy.`);
   }
 
   if (textPreview) {
-    pieces.push(`Visible copy excerpt: "${textPreview}"`);
+    pieces.push(`Primary messaging references content such as ${textPreview}.`);
   }
 
-  const paragraph = pieces.join(" ").trim();
-  const screenshotLine = `Screenshot: ${screenshotUrl ?? "unavailable"}`;
+  pieces.push("Recreate using stacked sections, generous vertical spacing, and polished hover/focus states for interactive elements.");
 
-  return `${paragraph}\n${screenshotLine}`;
+  const paragraph = pieces.join(" ").trim();
+
+  return `Recreate this screenshot: ${screenshotUrl ?? "unavailable"}. ${paragraph}`;
 };
 
 const buildTextPrompt = (context: Doc<"contexts">) => {

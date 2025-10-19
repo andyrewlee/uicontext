@@ -163,7 +163,12 @@ const ContextSummary = ({ contexts }: { contexts: ContextRecord[] }) => {
   );
 };
 
-const ContextCard = ({ context }: { context: ContextRecord }) => {
+type ContextCardProps = {
+  context: ContextRecord;
+  onSelect?: (context: ContextRecord) => void;
+};
+
+const ContextCard = ({ context, onSelect }: ContextCardProps) => {
   const createdAt = new Date(context.createdAt);
   const updatedAt = new Date(context.updatedAt);
   const showAiPreview = context.aiResponse && context.aiResponse.length > 0;
@@ -181,8 +186,25 @@ const ContextCard = ({ context }: { context: ContextRecord }) => {
   const promptSnippet =
     context.type === "design" && context.aiPrompt ? context.aiPrompt.slice(0, 220) : null;
 
+  const handleCardClick = () => {
+    if (onSelect) {
+      onSelect(context);
+    }
+  };
+
   return (
-    <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
+    <article
+      role="button"
+      tabIndex={0}
+      onClick={handleCardClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleCardClick();
+        }
+      }}
+      className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-[0_2px_8px_rgba(15,23,42,0.04)] transition hover:border-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-400"
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -192,6 +214,7 @@ const ContextCard = ({ context }: { context: ContextRecord }) => {
           <Link
             href={`/context/${context._id}`}
             className="text-lg font-semibold text-slate-900 hover:text-slate-600"
+            onClick={(event) => event.stopPropagation()}
           >
             {context.pageTitle ?? "Untitled capture"}
           </Link>
@@ -202,6 +225,7 @@ const ContextCard = ({ context }: { context: ContextRecord }) => {
                 target="_blank"
                 rel="noreferrer"
                 className="underline decoration-dotted"
+                onClick={(event) => event.stopPropagation()}
               >
                 {context.originUrl}
               </a>
@@ -254,8 +278,94 @@ const ContextCard = ({ context }: { context: ContextRecord }) => {
   );
 };
 
+const ContextPreviewModal = ({
+  context,
+  onClose,
+}: {
+  context: ContextRecord;
+  onClose: () => void;
+}) => {
+  const isDesign = context.type === "design";
+  const bodyContent = isDesign ? context.aiResponse ?? "" : context.markdown ?? context.textContent ?? "";
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 px-4 py-8"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {isDesign ? "Design capture" : "Text capture"}
+            </p>
+            <h2 className="text-lg font-semibold text-slate-900">
+              {context.pageTitle ?? "Untitled capture"}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+          >
+            Close
+          </button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
+          <div className="space-y-6">
+            {bodyContent ? (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {isDesign ? "AI output" : "Captured text"}
+                </p>
+                <article className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-relaxed text-slate-700">
+                  {isDesign && context.screenshotUrl ? (
+                    <div className="space-y-3">
+                      <div className="overflow-hidden rounded-lg border border-slate-200">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={context.screenshotUrl}
+                          alt="Captured design screenshot"
+                          className="w-full bg-slate-100 object-contain"
+                        />
+                      </div>
+                      <div className="whitespace-pre-wrap">{bodyContent}</div>
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap">{bodyContent}</div>
+                  )}
+                </article>
+              </div>
+            ) : null}
+
+            <div>
+              <ContextCopyButtons
+                context={{
+                  type: context.type,
+                  aiPrompt: context.aiPrompt,
+                  aiResponse: context.aiResponse,
+                  html: context.html,
+                  styles: context.styles,
+                  cssTokens: context.cssTokens,
+                  textContent: context.textContent,
+                  markdown: context.markdown,
+                  screenshotUrl: context.screenshotUrl,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Dashboard = () => {
   const [filter, setFilter] = useState<FilterValue>("all");
+  const [previewContext, setPreviewContext] = useState<ContextRecord | null>(null);
   const queryArgs = filter === "all" ? {} : { type: filter };
   const contexts = useQuery(api.contexts.listContexts, queryArgs) as
     | ContextRecord[]
@@ -295,10 +405,21 @@ const Dashboard = () => {
       ) : (
         <div className="grid gap-4">
           {contexts.map((context) => (
-            <ContextCard key={context._id} context={context} />
+            <ContextCard
+              key={context._id}
+              context={context}
+              onSelect={(selected) => setPreviewContext(selected)}
+            />
           ))}
         </div>
       )}
+
+      {previewContext ? (
+        <ContextPreviewModal
+          context={previewContext}
+          onClose={() => setPreviewContext(null)}
+        />
+      ) : null}
     </div>
   );
 };
