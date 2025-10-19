@@ -21,21 +21,39 @@ async function getToken() {
 
 // Respond to messages from other extension contexts (popup/content scripts).
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  const isTokenRequest =
-    request &&
-    typeof request === 'object' &&
-    ('type' in request ? request.type === 'GET_CLERK_TOKEN' : request?.greeting === 'get-token')
-
-  if (!isTokenRequest) {
+  if (!request || typeof request !== 'object') {
     return undefined
   }
 
-  getToken()
-    .then((token) => sendResponse({ token }))
-    .catch((error) => {
-      console.error('[Background service worker] Error:', JSON.stringify(error))
-      sendResponse({ token: null, error: String(error) })
+  // Content scripts ask for a Convex auth token by sending GET_CLERK_TOKEN.
+  // This stays in the background script so Clerk dependencies never bundle into the content layer.
+  if ('type' in request && request.type === 'GET_CLERK_TOKEN') {
+    getToken()
+      .then((token) => sendResponse({ token }))
+      .catch((error) => {
+        console.error('[Background service worker] Error:', JSON.stringify(error))
+        sendResponse({ token: null, error: String(error) })
+      })
+
+    return true
+  }
+
+  // Design captures request a full-page screenshot, which we obtain from the background
+  // because content scripts do not have access to chrome.tabs APIs.
+  if ('type' in request && request.type === 'UICON_CAPTURE_SCREENSHOT') {
+    const targetWindow = sender.tab?.windowId ?? chrome.windows.WINDOW_ID_CURRENT
+
+    chrome.tabs.captureVisibleTab(targetWindow, { format: 'png' }, (dataUrl) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ dataUrl: null, error: chrome.runtime.lastError.message })
+        return
+      }
+
+      sendResponse({ dataUrl: dataUrl ?? null })
     })
 
-  return true
+    return true
+  }
+
+  return undefined
 })

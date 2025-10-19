@@ -21,6 +21,13 @@ export default defineSchema({
     type: v.union(v.literal("design"), v.literal("text")),
     html: v.optional(v.string()),
     textContent: v.optional(v.string()),
+    // Additional design metadata captured by the extension.
+    styles: v.optional(v.record(v.string(), v.string())),
+    cssTokens: v.optional(v.record(v.string(), v.string())),
+    screenshotStorageId: v.optional(v.id("_storage")),
+    originUrl: v.optional(v.string()),
+    pageTitle: v.optional(v.string()),
+    selectionPath: v.optional(v.string()),
     status: v.union(
       v.literal("queued"),
       v.literal("processing"),
