@@ -38,6 +38,13 @@ type ContextRecord = {
   processedAt?: number | null;
   createdAt: number;
   updatedAt: number;
+  designDetails?: {
+    bounds: { width: number; height: number; top: number; left: number };
+    viewport: { scrollX: number; scrollY: number; width: number; height: number };
+    colorPalette?: string[] | null;
+    fontFamilies?: string[] | null;
+    fontMetrics?: string[] | null;
+  } | null;
 };
 
 const statusStyles: Record<string, string> = {
@@ -163,6 +170,16 @@ const ContextCard = ({ context }: { context: ContextRecord }) => {
   const previewText = showAiPreview
     ? context.aiResponse.slice(0, 280)
     : (context.markdown ?? context.textContent ?? "").slice(0, 280);
+  const extractionLabel =
+    context.type === "text" && context.textExtraction
+      ? `Text via ${context.textExtraction.strategy}${context.textExtraction.adapter ? ` (${context.textExtraction.adapter})` : ""}`
+      : null;
+  const layoutLabel =
+    context.type === "design" && context.designDetails
+      ? `Bounds ${context.designDetails.bounds.width}×${context.designDetails.bounds.height}px`
+      : null;
+  const promptSnippet =
+    context.type === "design" && context.aiPrompt ? context.aiPrompt.slice(0, 220) : null;
 
   return (
     <article className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
@@ -203,6 +220,22 @@ const ContextCard = ({ context }: { context: ContextRecord }) => {
           {previewText}
           {previewText.length === 280 ? "…" : ""}
         </p>
+      )}
+      {extractionLabel && (
+        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+          {extractionLabel.replace("$", "")}
+        </p>
+      )}
+      {layoutLabel && (
+        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+          {layoutLabel}
+        </p>
+      )}
+      {promptSnippet && (
+        <pre className="rounded-md bg-slate-50 p-3 text-xs text-slate-600">
+          {promptSnippet}
+          {promptSnippet.length === 220 ? "…" : ""}
+        </pre>
       )}
       <ContextCopyButtons
         context={{

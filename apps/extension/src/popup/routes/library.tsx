@@ -26,6 +26,13 @@ type RemoteContext = {
   styles?: Record<string, string> | null
   cssTokens?: Record<string, string> | null
   screenshotUrl?: string | null
+  designDetails?: {
+    bounds: { width: number; height: number; top: number; left: number }
+    viewport: { scrollX: number; scrollY: number; width: number; height: number }
+    colorPalette?: string[] | null
+    fontFamilies?: string[] | null
+    fontMetrics?: string[] | null
+  } | null
 }
 
 type CopyButtonProps = {
@@ -301,6 +308,16 @@ const ContextCard = ({ context }: { context: RemoteContext }) => {
     context.markdown?.slice(0, 260) ??
     context.textContent?.slice(0, 260) ??
     ''
+  const extractionLabel =
+    context.type === 'text' && context.textExtraction
+      ? `Text via ${context.textExtraction.strategy}${context.textExtraction.adapter ? ` (${context.textExtraction.adapter})` : ''}`
+      : null
+  const layoutLabel =
+    context.type === 'design' && context.designDetails
+      ? `Bounds ${context.designDetails.bounds.width}×${context.designDetails.bounds.height}px`
+      : null
+  const promptSnippet =
+    context.type === 'design' && context.aiPrompt ? context.aiPrompt.slice(0, 200) : null
 
   return (
     <article className="plasmo-flex plasmo-flex-col plasmo-gap-3 plasmo-rounded-2xl plasmo-border plasmo-border-neutral-200 plasmo-bg-white plasmo-p-4 plasmo-shadow-[0_2px_12px_rgba(15,23,42,0.06)]">
@@ -329,6 +346,25 @@ const ContextCard = ({ context }: { context: RemoteContext }) => {
           {preview}
           {preview.length === 260 ? '…' : ''}
         </p>
+      )}
+
+      {extractionLabel && (
+        <p className="plasmo-text-[11px] plasmo-font-medium plasmo-uppercase plasmo-tracking-wide plasmo-text-neutral-400">
+          {extractionLabel}
+        </p>
+      )}
+
+      {layoutLabel && (
+        <p className="plasmo-text-[11px] plasmo-font-medium plasmo-uppercase plasmo-tracking-wide plasmo-text-neutral-400">
+          {layoutLabel}
+        </p>
+      )}
+
+      {promptSnippet && (
+        <pre className="plasmo-rounded-md plasmo-bg-slate-50 plasmo-p-3 plasmo-text-[11px] plasmo-leading-snug plasmo-text-slate-600">
+          {promptSnippet}
+          {promptSnippet.length === 200 ? '…' : ''}
+        </pre>
       )}
 
       {context.aiError && (

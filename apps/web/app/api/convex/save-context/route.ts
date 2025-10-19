@@ -18,6 +18,13 @@ type SaveContextPayload = {
   textContent?: string;
   markdown?: string;
   textExtraction?: TextExtractionPayload;
+  designDetails?: {
+    bounds: { width: number; height: number; top: number; left: number };
+    viewport: { scrollX: number; scrollY: number; width: number; height: number };
+    colorPalette?: string[];
+    fontFamilies?: string[];
+    fontMetrics?: string[];
+  };
   styles?: Record<string, string>;
   cssTokens?: Record<string, string>;
   selectionPath?: string;
@@ -62,6 +69,7 @@ const isValidPayload = (payload: unknown): payload is SaveContextPayload => {
     textContent,
     markdown,
     textExtraction,
+    designDetails,
     styles,
     cssTokens,
     selectionPath,
@@ -88,6 +96,48 @@ const isValidPayload = (payload: unknown): payload is SaveContextPayload => {
 
   if (markdown !== undefined && typeof markdown !== "string") {
     return false;
+  }
+
+  const validateStringArray = (value: unknown) =>
+    Array.isArray(value) ? value.every((item) => typeof item === "string") : false;
+
+  if (designDetails !== undefined) {
+    if (!designDetails || typeof designDetails !== "object") {
+      return false;
+    }
+
+    const { bounds, viewport, colorPalette, fontFamilies, fontMetrics } =
+      designDetails as SaveContextPayload["designDetails"];
+
+    if (
+      !bounds ||
+      typeof bounds.width !== "number" ||
+      typeof bounds.height !== "number" ||
+      typeof bounds.top !== "number" ||
+      typeof bounds.left !== "number"
+    ) {
+      return false;
+    }
+
+    if (
+      !viewport ||
+      typeof viewport.scrollX !== "number" ||
+      typeof viewport.scrollY !== "number" ||
+      typeof viewport.width !== "number" ||
+      typeof viewport.height !== "number"
+    ) {
+      return false;
+    }
+
+    if (colorPalette && !validateStringArray(colorPalette)) {
+      return false;
+    }
+    if (fontFamilies && !validateStringArray(fontFamilies)) {
+      return false;
+    }
+    if (fontMetrics && !validateStringArray(fontMetrics)) {
+      return false;
+    }
   }
 
   if (styles !== undefined && !isRecordOfStrings(styles)) {
@@ -204,6 +254,7 @@ export async function POST(request: Request) {
         textContent: payload.textContent,
         textExtraction: payload.textExtraction,
         markdown: payload.markdown,
+        designDetails: payload.designDetails,
         styles: payload.styles,
         cssTokens: payload.cssTokens,
         selectionPath: payload.selectionPath,

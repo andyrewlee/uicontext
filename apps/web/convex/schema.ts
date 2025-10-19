@@ -40,6 +40,25 @@ export default defineSchema({
     originUrl: v.optional(v.string()),
     pageTitle: v.optional(v.string()),
     selectionPath: v.optional(v.string()),
+    designDetails: v.optional(
+      v.object({
+        bounds: v.object({
+          width: v.number(),
+          height: v.number(),
+          top: v.number(),
+          left: v.number(),
+        }),
+        viewport: v.object({
+          scrollX: v.number(),
+          scrollY: v.number(),
+          width: v.number(),
+          height: v.number(),
+        }),
+        colorPalette: v.optional(v.array(v.string())),
+        fontFamilies: v.optional(v.array(v.string())),
+        fontMetrics: v.optional(v.array(v.string())),
+      }),
+    ),
     aiPrompt: v.optional(v.string()),
     aiResponse: v.optional(v.string()),
     aiModel: v.optional(v.string()),

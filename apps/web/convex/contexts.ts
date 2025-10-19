@@ -27,6 +27,25 @@ export const saveContextDraft = mutation({
         adapter: v.optional(v.string()),
       }),
     ),
+    designDetails: v.optional(
+      v.object({
+        bounds: v.object({
+          width: v.number(),
+          height: v.number(),
+          top: v.number(),
+          left: v.number(),
+        }),
+        viewport: v.object({
+          scrollX: v.number(),
+          scrollY: v.number(),
+          width: v.number(),
+          height: v.number(),
+        }),
+        colorPalette: v.optional(v.array(v.string())),
+        fontFamilies: v.optional(v.array(v.string())),
+        fontMetrics: v.optional(v.array(v.string())),
+      }),
+    ),
     styles: v.optional(v.record(v.string(), v.string())),
     cssTokens: v.optional(v.record(v.string(), v.string())),
     selectionPath: v.optional(v.string()),
@@ -76,6 +95,7 @@ export const saveContextDraft = mutation({
       textContent: args.textContent,
       textExtraction: args.textExtraction ?? undefined,
       markdown: args.markdown ?? undefined,
+      designDetails: args.designDetails ?? undefined,
       styles: args.styles,
       cssTokens: args.cssTokens,
       selectionPath: args.selectionPath,
@@ -114,6 +134,25 @@ export const saveContextDraftWithAssets = action({
         adapter: v.optional(v.string()),
       }),
     ),
+    designDetails: v.optional(
+      v.object({
+        bounds: v.object({
+          width: v.number(),
+          height: v.number(),
+          top: v.number(),
+          left: v.number(),
+        }),
+        viewport: v.object({
+          scrollX: v.number(),
+          scrollY: v.number(),
+          width: v.number(),
+          height: v.number(),
+        }),
+        colorPalette: v.optional(v.array(v.string())),
+        fontFamilies: v.optional(v.array(v.string())),
+        fontMetrics: v.optional(v.array(v.string())),
+      }),
+    ),
     styles: v.optional(v.record(v.string(), v.string())),
     cssTokens: v.optional(v.record(v.string(), v.string())),
     selectionPath: v.optional(v.string()),
@@ -145,6 +184,7 @@ export const saveContextDraftWithAssets = action({
       textContent: args.textContent,
       textExtraction: args.textExtraction,
       markdown: args.markdown,
+      designDetails: args.designDetails,
       styles: args.styles,
       cssTokens: args.cssTokens,
       selectionPath: args.selectionPath,
@@ -208,6 +248,7 @@ export const listContexts = query({
           textContent: context.textContent,
           textExtraction: context.textExtraction,
           markdown: context.markdown,
+          designDetails: context.designDetails,
           styles: context.styles,
           cssTokens: context.cssTokens,
           selectionPath: context.selectionPath,
@@ -266,6 +307,7 @@ export const getContextById = query({
       textContent: context.textContent,
       textExtraction: context.textExtraction,
       markdown: context.markdown,
+      designDetails: context.designDetails,
       styles: context.styles,
       cssTokens: context.cssTokens,
       selectionPath: context.selectionPath,
@@ -414,6 +456,23 @@ const MAX_TEXT_LENGTH = 2500;
 const MAX_STYLE_ENTRIES = 80;
 const MAX_TOKEN_ENTRIES = 60;
 
+const getAssetBaseUrl = () => {
+  const candidate =
+    process.env.ASSET_BASE_URL ??
+    process.env.APP_ORIGIN ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    "http://localhost:3000";
+
+  return candidate.endsWith("/") ? candidate.slice(0, -1) : candidate;
+};
+
+const buildScreenshotProxyUrl = (context: Doc<"contexts">) => {
+  if (!context.screenshotStorageId) {
+    return null;
+  }
+  return `${getAssetBaseUrl()}/api/assets/${context.screenshotStorageId}`;
+};
+
 const truncate = (value: string | null | undefined, limit: number) => {
   if (!value) {
     return "";
@@ -450,22 +509,50 @@ const buildDesignPrompt = (context: Doc<"contexts">) => {
   const visibleText = truncate(context.textContent ?? "", MAX_TEXT_LENGTH);
   const stylesBlock = formatKeyValueList(context.styles, MAX_STYLE_ENTRIES);
   const tokensBlock = formatKeyValueList(context.cssTokens, MAX_TOKEN_ENTRIES);
+  const screenshotUrl = buildScreenshotProxyUrl(context);
+
+  const designLines: string[] = [];
+  if (context.designDetails) {
+    designLines.push(
+      `- Bounds: ${context.designDetails.bounds.width}×${context.designDetails.bounds.height}px (viewport origin x=${context.designDetails.bounds.left}, y=${context.designDetails.bounds.top})`,
+    );
+    if (context.designDetails.colorPalette && context.designDetails.colorPalette.length > 0) {
+      designLines.push(`- Palette: ${context.designDetails.colorPalette.slice(0, 8).join(", ")}`);
+    }
+    if (context.designDetails.fontFamilies && context.designDetails.fontFamilies.length > 0) {
+      designLines.push(`- Fonts: ${context.designDetails.fontFamilies.join(", ")}`);
+    }
+    if (context.designDetails.fontMetrics && context.designDetails.fontMetrics.length > 0) {
+      designLines.push(`- Font metrics: ${context.designDetails.fontMetrics.join(", ")}`);
+    }
+  }
+
+  const layoutSummary = designLines.length > 0 ? designLines.join("\n") : "- No additional layout metadata captured.";
+
+  const instructions = [
+    "Respond in Markdown with the following sections:",
+    "1. **Build Summary** – bullet list of the component’s purpose and critical visual traits.",
+    "2. **HTML** – a single code block containing semantic HTML (or JSX) that recreates the component.",
+    "3. **Styles** – a code block with CSS or Tailwind classes necessary to match spacing, colors, typography, and states.",
+    "4. **Implementation Notes** – bullet list of any assumptions, responsive considerations, or accessibility details.",
+    "Reference the screenshot for exact spacing and visual fidelity. Use the extracted palette and fonts to stay accurate.",
+  ].join("\n");
 
   return [
-    "You are a senior product designer and front-end engineer. Evaluate the captured UI element and produce concrete feedback the builder can act on.",
-    `Context metadata:
-- Page title: ${context.pageTitle ?? "Untitled"}
-- Origin URL: ${context.originUrl ?? "Unknown"}
-- Selection path: ${context.selectionPath ?? "N/A"}
-- Captured at (ISO): ${new Date(context.createdAt).toISOString()}`,
+    "You are an expert front-end engineer tasked with recreating the captured UI exactly.",
+    `Page title: ${context.pageTitle ?? "Untitled"}`,
+    `Source URL: ${context.originUrl ?? "Unknown"}`,
+    `Capture timestamp: ${new Date(context.createdAt).toISOString()}`,
+    screenshotUrl ? `Reference screenshot: ${screenshotUrl}` : "Reference screenshot is not available.",
+    `Layout highlights:\n${layoutSummary}`,
     htmlBlock
-      ? `HTML snippet:
+      ? `Captured HTML (truncated):
 \`\`\`html
 ${htmlBlock}
 \`\`\``
       : "No HTML snippet was captured.",
     visibleText
-      ? `Visible text content:
+      ? `Visible text:
 \`\`\`
 ${visibleText}
 \`\`\``
@@ -474,7 +561,7 @@ ${visibleText}
 ${stylesBlock}`,
     `CSS custom properties (subset):
 ${tokensBlock}`,
-    "Respond in Markdown with the following sections:\n1. **At a Glance** – 2 short bullets summarizing what this component communicates.\n2. **Design Recommendations** – 3 to 5 numbered suggestions referencing specific visual details (colors, spacing, typography, accessibility).\n3. **Implementation Hints** – Bullet list of concrete CSS/HTML tweaks (selectors + values) to achieve the recommendations.\nKeep the response under 250 words.",
+    instructions,
   ].join("\n\n");
 };
 

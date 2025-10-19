@@ -54,6 +54,84 @@ const captureElementSnapshot = (element: Element) => {
   }
 }
 
+const computeDesignMetadata = (element: Element, styles: Record<string, string>) => {
+  const rect = element.getBoundingClientRect()
+
+  const collectColors = () => {
+    const colorKeys = [
+      "color",
+      "background-color",
+      "border-color",
+      "border-top-color",
+      "border-right-color",
+      "border-bottom-color",
+      "border-left-color",
+      "fill",
+      "stroke",
+      "outline-color",
+    ]
+
+    const seen = new Set<string>()
+    const palette: string[] = []
+
+    colorKeys.forEach((key) => {
+      const value = styles[key]
+      if (!value) {
+        return
+      }
+      const normalized = value.trim().toLowerCase()
+      if (!normalized || normalized === "transparent" || normalized === "rgba(0, 0, 0, 0)") {
+        return
+      }
+      if (!seen.has(normalized)) {
+        seen.add(normalized)
+        palette.push(normalized)
+      }
+    })
+
+    return palette.slice(0, 12)
+  }
+
+  const collectFontFamilies = () => {
+    const raw = styles["font-family"] ?? ""
+    if (!raw) {
+      return []
+    }
+    return raw
+      .split(",")
+      .map((item) => item.trim().replace(/^['"]|['"]$/g, ""))
+      .filter(Boolean)
+      .slice(0, 5)
+  }
+
+  const collectFontSizes = () => {
+    const size = styles["font-size"]
+    const lineHeight = styles["line-height"]
+    const weight = styles["font-weight"]
+
+    const sizes = [size, lineHeight, weight].filter((value): value is string => Boolean(value))
+    return sizes.slice(0, 5)
+  }
+
+  return {
+    bounds: {
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      top: Math.round(rect.top + window.scrollY),
+      left: Math.round(rect.left + window.scrollX),
+    },
+    viewport: {
+      scrollX: Math.round(window.scrollX),
+      scrollY: Math.round(window.scrollY),
+      width: window.innerWidth,
+      height: window.innerHeight,
+    },
+    colorPalette: collectColors(),
+    fontFamilies: collectFontFamilies(),
+    fontMetrics: collectFontSizes(),
+  }
+}
+
 const isExtensionElement = (element: Element) => {
   if (element.id === HIGHLIGHT_ID || element.id === TOAST_ID) {
     return true
@@ -317,6 +395,15 @@ const ElementHighlighter = () => {
         let screenshot: string | null = null
         let textExtraction: { strategy: string; adapter?: string } | undefined
         let markdown: string | undefined
+        let designDetails:
+          | {
+              bounds: { width: number; height: number; top: number; left: number }
+              viewport: { scrollX: number; scrollY: number; width: number; height: number }
+              colorPalette: string[]
+              fontFamilies: string[]
+              fontMetrics: string[]
+            }
+          | undefined
 
         if (currentMode === "text") {
           const extraction = extractTextContent(element)
@@ -332,6 +419,7 @@ const ElementHighlighter = () => {
         if (currentMode === "design") {
           styles = collectComputedStyles(element)
           cssTokens = collectCssTokens(styles)
+          designDetails = computeDesignMetadata(element, styles)
 
           const toastElement = document.getElementById(TOAST_ID) as HTMLDivElement | null
           const previousToastVisibility = toastElement?.style.visibility ?? ""
@@ -410,6 +498,7 @@ const ElementHighlighter = () => {
             screenshot: screenshot ?? undefined,
             textExtraction,
             markdown,
+            designDetails,
           }),
         })
 

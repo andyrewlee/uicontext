@@ -24,6 +24,13 @@ type RemoteContext = {
   styles?: Record<string, string> | null
   cssTokens?: Record<string, string> | null
   screenshotUrl?: string | null
+  designDetails?: {
+    bounds: { width: number; height: number; top: number; left: number }
+    viewport: { scrollX: number; scrollY: number; width: number; height: number }
+    colorPalette?: string[] | null
+    fontFamilies?: string[] | null
+    fontMetrics?: string[] | null
+  } | null
 }
 
 const TOGGLE_STORAGE_KEY = 'uicontext:selector-active'
@@ -317,13 +324,19 @@ export const Home = () => {
                 <p className="plasmo-mt-1 plasmo-text-sm plasmo-text-neutral-600">
                   {context.pageTitle ?? 'Untitled page'}
                 </p>
-                <p className="plasmo-text-xs plasmo-text-neutral-400">
-                  {context.originUrl ?? 'Unknown origin'}
+              <p className="plasmo-text-xs plasmo-text-neutral-400">
+                {context.originUrl ?? 'Unknown origin'}
+              </p>
+              {context.type === 'text' && context.textExtraction && (
+                <p className="plasmo-text-[11px] plasmo-uppercase plasmo-tracking-wide plasmo-text-neutral-400">
+                  Text via {context.textExtraction.strategy}
+                  {context.textExtraction.adapter ? ` (${context.textExtraction.adapter})` : ''}
                 </p>
-              </li>
-            ))}
-          </ul>
-        )}
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
 
         {statusMessage && (
           <p className="plasmo-text-xs plasmo-text-red-500">{statusMessage}</p>

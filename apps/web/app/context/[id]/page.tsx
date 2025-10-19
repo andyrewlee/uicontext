@@ -108,6 +108,27 @@ export default async function ContextDetailPage({ params }: ContextDetailProps) 
                 <dd className="font-mono text-xs text-slate-600">{context.selectionPath}</dd>
               </div>
             )}
+            {context.designDetails && (
+              <div className="sm:col-span-2">
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Layout summary
+                </dt>
+                <dd className="text-sm text-slate-700">
+                  Bounds {context.designDetails.bounds.width}×{context.designDetails.bounds.height} px ·
+                  Position x={context.designDetails.bounds.left}, y={context.designDetails.bounds.top}
+                </dd>
+                {(context.designDetails.colorPalette?.length ?? 0) > 0 && (
+                  <p className="text-xs text-slate-500">
+                    Palette: {context.designDetails.colorPalette?.join(", ")}
+                  </p>
+                )}
+                {(context.designDetails.fontFamilies?.length ?? 0) > 0 && (
+                  <p className="text-xs text-slate-500">
+                    Fonts: {context.designDetails.fontFamilies?.join(", ")}
+                  </p>
+                )}
+              </div>
+            )}
             {context.aiModel && (
               <div>
                 <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -190,6 +211,16 @@ export default async function ContextDetailPage({ params }: ContextDetailProps) 
             </div>
           </div>
         </section>
+
+        {context.type === "text" && context.textExtraction && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-900">Extraction details</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Strategy: {context.textExtraction.strategy}
+              {context.textExtraction.adapter ? ` (${context.textExtraction.adapter})` : ""}
+            </p>
+          </section>
+        )}
       </main>
     </div>
   );
