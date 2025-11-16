@@ -42,12 +42,12 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
           >
-            three.js
+            UI Context
           </a>
-          <span>Volumetric Cloud</span>
+          <span>context layer for AI agents</span>
         </div>
 
-        <small>Volumetric cloud using 3D texture raymarching.</small>
+        <small>coming soon</small>
       </div>
     </>
   );
