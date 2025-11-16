@@ -3,7 +3,6 @@ import { float, vec3, vec4, If, Break, Fn, smoothstep, texture3D, uniform } from
 import { RaymarchingBox } from 'three/addons/tsl/utils/Raymarching.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
-import { Inspector } from 'three/addons/inspector/Inspector.js';
 
 const existingApp = window.__THREE_CLOUD_APP__;
 if (existingApp && typeof existingApp.dispose === 'function') {
@@ -29,7 +28,6 @@ function init() {
 
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.inspector = new Inspector();
   document.body.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -141,12 +139,6 @@ function init() {
 
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material);
   scene.add(mesh);
-
-  const gui = renderer.inspector.createParameters('Parameters');
-  gui.add(threshold, 'value', 0, 1, 0.01).name('threshold');
-  gui.add(opacity, 'value', 0, 1, 0.01).name('opacity');
-  gui.add(range, 'value', 0, 1, 0.01).name('range');
-  gui.add(steps, 'value', 0, 200, 1).name('steps');
 
   function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
